@@ -23,7 +23,7 @@ targets:
         CFBundleShortVersionString: "0.0.1"
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "14.0"
-        LSUIElement: true
+        LSUIElement: false
         NSHumanReadableCopyright: "Copyright © 2026 Pilot contributors"
     settings:
       base:
