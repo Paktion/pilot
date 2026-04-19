@@ -251,9 +251,11 @@ class WorkflowEngine:
                 raise WorkflowFailed(f"read_as: pattern {pattern!r} not found on screen")
             ctx.variables[var_name] = value
         elif kind is StepKind.EXTRACT:
-            self._run_extract(step, ctx)
+            from pilot.workflow.engine_steps import run_extract
+            run_extract(self, step, ctx)
         elif kind is StepKind.GOAL:
-            self._run_goal(step, ctx)
+            from pilot.workflow.engine_steps import run_goal
+            run_goal(self, step, ctx)
         elif kind is StepKind.REMEMBER:
             key = self._interp(step.value_for("key"), ctx)
             raw_val = self._interp(step.value_for("value"), ctx)
