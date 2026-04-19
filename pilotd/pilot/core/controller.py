@@ -22,11 +22,26 @@ import re
 import time
 from typing import Any, Callable
 
+import anthropic
 from PIL import Image
 
 from pilot.core.input_simulator import InputSimulator
 from pilot.core.vision import ClickAction, DoneAction, VisionAgent, WaitAction
 from pilot.core.window_capture import MirroringWindowManager
+
+
+class AnthropicAuthError(RuntimeError):
+    """The Anthropic API rejected the key. Retrying won't help — abort fast."""
+
+
+def _raise_if_auth(exc: Exception) -> None:
+    """If ``exc`` is a 401/403 from Anthropic, convert to a friendly auth error."""
+    if isinstance(exc, anthropic.APIStatusError) and exc.status_code in (401, 403):
+        raise AnthropicAuthError(
+            "Anthropic API key is invalid or unauthorized "
+            f"(HTTP {exc.status_code}). Update ANTHROPIC_API_KEY in .env "
+            "at the repo root and try again."
+        ) from exc
 
 log = logging.getLogger("pilotd.controller")
 
@@ -132,10 +147,12 @@ class AgentController:
                 })
                 response = self._vision.analyze_screen(ss, task=task_prompt)
             except Exception as exc:
+                _raise_if_auth(exc)  # fails fast on 401/403 — retrying is pointless
                 vision_errors += 1
                 if vision_errors >= 3:
                     log.warning(
-                        "wait_for %s: %d vision errors, bailing", keywords, vision_errors,
+                        "wait_for %s: %d vision errors, bailing: %s",
+                        keywords, vision_errors, exc,
                     )
                     return False
                 time.sleep(1.0)
@@ -209,7 +226,11 @@ class AgentController:
                 "prefer": prefer,
                 "scrolls": scrolls,
             })
-            response = self._vision.analyze_screen(ss, task=task_prompt)
+            try:
+                response = self._vision.analyze_screen(ss, task=task_prompt)
+            except Exception as exc:
+                _raise_if_auth(exc)
+                raise
             action = response.action
 
             if isinstance(action, ClickAction):
@@ -276,6 +297,7 @@ class AgentController:
         try:
             response = self._vision.analyze_screen(ss, task=ocr_task)
         except Exception as exc:
+            _raise_if_auth(exc)
             log.warning("read_regex vision call failed: %s", exc)
             return None
         text = getattr(response.action, "summary", None) or response.thought
