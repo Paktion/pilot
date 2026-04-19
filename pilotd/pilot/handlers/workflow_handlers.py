@@ -1,10 +1,10 @@
-"""Workflow CRUD + execution RPCs."""
+"""Workflow CRUD + streaming execution RPCs."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
-import uuid
 from typing import Any, Awaitable, Callable
 
 from pilot import service
@@ -13,6 +13,8 @@ from pilot.workflow import RunContext, WorkflowDef, WorkflowEngine, parse_workfl
 log = logging.getLogger("pilotd.handlers.workflow")
 
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
+
+_TERMINAL_EVENTS = {"done", "error", "failed", "aborted"}
 
 
 async def list_(_: dict[str, Any], emit: Emit) -> None:
@@ -31,10 +33,7 @@ async def save(params: dict[str, Any], emit: Emit) -> None:
         await emit({"event": "error", "error": f"parse: {exc}"})
         return
     wf_id = service.container().save_workflow(
-        name=defn.name,
-        app=defn.app,
-        yaml_text=yaml_text,
-        id=params.get("id"),
+        name=defn.name, app=defn.app, yaml_text=yaml_text, id=params.get("id"),
     )
     await emit({"event": "done", "status": "ok", "id": wf_id, "name": defn.name})
 
@@ -63,10 +62,18 @@ async def draft(params: dict[str, Any], emit: Emit) -> None:
 
 
 async def run(params: dict[str, Any], emit: Emit) -> None:
+    """Execute a workflow, streaming per-step events back over the RPC.
+
+    The RPC stays open for the duration of the run. A background thread
+    drives the engine and posts events into an asyncio queue that this
+    coroutine drains. Terminal events (done/failed/aborted/error) close
+    the stream.
+    """
     name = params.get("name")
     if not name:
         await emit({"event": "error", "error": "missing 'name'"})
         return
+
     defn = service.container().load_workflow(name)
     if defn is None:
         await emit({"event": "error", "error": f"workflow not found: {name}"})
@@ -77,25 +84,117 @@ async def run(params: dict[str, Any], emit: Emit) -> None:
     if row is None:
         await emit({"event": "error", "error": f"workflow row missing: {name}"})
         return
+
     run_id = mem.start_run(row["id"])
     await emit({"event": "started", "run_id": run_id, "workflow": name})
+    _register_active_run(run_id)
 
-    # Execute in a worker thread so we can stream events back without
-    # blocking the asyncio loop.
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    def bridge(event: dict[str, Any]) -> None:
+        """Called from the worker thread; non-blocking hand-off to the loop."""
+        enriched = dict(event)
+        enriched.setdefault("run_id", run_id)
+        loop.call_soon_threadsafe(queue.put_nowait, enriched)
+
     threading.Thread(
         target=_execute_workflow,
-        args=(run_id, row["id"], defn, params.get("params") or {}),
+        args=(run_id, row["id"], defn, params.get("params") or {}, bridge),
         daemon=True,
     ).start()
 
-    await emit({"event": "done", "status": "running", "run_id": run_id})
+    try:
+        while True:
+            event = await queue.get()
+            await emit(event)
+            if event.get("event") in _TERMINAL_EVENTS:
+                return
+    finally:
+        _unregister_active_run(run_id)
+
+
+async def subscribe(params: dict[str, Any], emit: Emit) -> None:
+    """Attach to an already-running workflow. Used for late-joining UIs."""
+    run_id = params.get("run_id")
+    if not run_id:
+        await emit({"event": "error", "error": "missing 'run_id'"})
+        return
+    channel = _ACTIVE_RUNS.get(run_id)
+    if channel is None:
+        await emit({"event": "error", "error": f"run not active: {run_id}"})
+        return
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    def _relay(event: dict[str, Any]) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, dict(event))
+
+    channel.attach(_relay)
+    try:
+        while True:
+            event = await queue.get()
+            await emit(event)
+            if event.get("event") in _TERMINAL_EVENTS:
+                return
+    finally:
+        channel.detach(_relay)
 
 
 async def approve_step(params: dict[str, Any], emit: Emit) -> None:
-    # Approval hook is exposed for completeness; the workflow engine accepts
-    # synchronous controls, so the approval dialog is handled client-side
-    # (confirm_each_action toggle passed in params on workflow.run).
     await emit({"event": "done", "status": "ok", "decision": params.get("decision", "approve")})
+
+
+# ---------------------------------------------------------------------------
+# Active-run registry — lets multiple clients attach to the same run
+# ---------------------------------------------------------------------------
+
+
+class _Channel:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._subs: list[Callable[[dict[str, Any]], None]] = []
+
+    def attach(self, fn: Callable[[dict[str, Any]], None]) -> None:
+        with self._lock:
+            self._subs.append(fn)
+
+    def detach(self, fn: Callable[[dict[str, Any]], None]) -> None:
+        with self._lock:
+            try:
+                self._subs.remove(fn)
+            except ValueError:
+                pass
+
+    def publish(self, event: dict[str, Any]) -> None:
+        with self._lock:
+            subs = list(self._subs)
+        for fn in subs:
+            try:
+                fn(event)
+            except Exception:
+                log.exception("subscriber raised")
+
+
+_ACTIVE_RUNS: dict[str, _Channel] = {}
+_ACTIVE_LOCK = threading.Lock()
+
+
+def _register_active_run(run_id: str) -> _Channel:
+    with _ACTIVE_LOCK:
+        ch = _Channel()
+        _ACTIVE_RUNS[run_id] = ch
+        return ch
+
+
+def _unregister_active_run(run_id: str) -> None:
+    with _ACTIVE_LOCK:
+        _ACTIVE_RUNS.pop(run_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Worker
+# ---------------------------------------------------------------------------
 
 
 def _execute_workflow(
@@ -103,83 +202,54 @@ def _execute_workflow(
     workflow_id: str,
     defn: WorkflowDef,
     params: dict[str, Any],
+    emit_bridge: Callable[[dict[str, Any]], None],
 ) -> None:
-    """Thread worker: build a live agent stack, execute the workflow, persist outcome."""
+    channel = _ACTIVE_RUNS.get(run_id)
+
+    def emit(event: dict[str, Any]) -> None:
+        emit_bridge(event)
+        if channel is not None:
+            channel.publish(event)
+
     try:
-        controller = _build_live_controller()
+        controller = _build_live_controller(emit)
     except Exception as exc:
         log.exception("could not build agent controller")
         service.container().memory().finish_run(
-            run_id,
-            status="failed",
+            run_id, status="failed",
             summary=f"controller init failed: {type(exc).__name__}: {exc}",
         )
+        emit({"event": "failed", "error": f"controller init: {exc}"})
         return
 
     mem = service.container().memory()
-    median_spectrum = _precompute_memory_snapshot(mem)
 
     def _remember(key: str, value: Any) -> None:
         mem.remember(
-            workflow_id=workflow_id,
-            run_id=run_id,
-            kind="observation",
-            key=key,
-            value=value,
+            workflow_id=workflow_id, run_id=run_id,
+            kind="observation", key=key, value=value,
         )
 
-    def _lookup(name: str) -> WorkflowDef | None:
-        return service.container().load_workflow(name)
-
-    ctx = RunContext(
-        run_id=run_id,
-        workflow_id=workflow_id,
-        params=params,
-        memory_snapshot=median_spectrum,
-    )
+    ctx = RunContext(run_id=run_id, workflow_id=workflow_id, params=params)
     engine = WorkflowEngine(
         controller=controller,
-        workflow_lookup=_lookup,
+        workflow_lookup=service.container().load_workflow,
         remember=_remember,
+        emit=emit,
     )
-
     result = engine.run(defn, ctx)
-    summary = result.summary
-    cost = _estimate_cost_usd()
-    mem.finish_run(
-        run_id,
-        status=result.status,
-        summary=summary,
-        cost_usd=cost,
-    )
-    log.info("workflow %s → %s (%s)", defn.name, result.status, summary)
+    mem.finish_run(run_id, status=result.status, summary=result.summary)
+    emit({
+        "event": "done",
+        "status": result.status,
+        "summary": result.summary,
+        "extracted": result.extracted,
+        "chained_run_ids": result.chained_run_ids,
+    })
+    log.info("workflow %s → %s (%s)", defn.name, result.status, result.summary)
 
 
-def _precompute_memory_snapshot(mem) -> dict[str, Any]:
-    """Inject common computed memory values used in abort_if expressions."""
-    snap: dict[str, Any] = {}
-    values = mem.numeric_values(workflow_id=None, key="last_spectrum_bill", limit=6)
-    if values:
-        values_sorted = sorted(values)
-        mid = len(values_sorted) // 2
-        if len(values_sorted) % 2 == 0:
-            snap["median_spectrum_last6"] = (
-                values_sorted[mid - 1] + values_sorted[mid]
-            ) / 2
-        else:
-            snap["median_spectrum_last6"] = values_sorted[mid]
-    return snap
-
-
-def _estimate_cost_usd() -> float:
-    usage = service.container().usage()
-    return usage.get_daily_cost()  # cheap proxy; replace with per-task cost when available
-
-
-def _build_live_controller():
-    """Construct the real agent-controller stack. Imports are deferred so test
-    paths can avoid the native Quartz/pyobjc dependencies.
-    """
+def _build_live_controller(emit: Callable[[dict[str, Any]], None]):
     from pilot.core.controller import AgentController
     from pilot.core.input_simulator import InputSimulator
     from pilot.core.vision import VisionAgent
@@ -188,7 +258,27 @@ def _build_live_controller():
     window = MirroringWindowManager()
     inputs = InputSimulator(window_manager=window)
     vision = VisionAgent(model=service.container().config().get("model"))
-    return AgentController(vision=vision, inputs=inputs, window=window)
+
+    def on_screenshot(image, meta):
+        # Emit a compact screenshot event (JPEG-encoded + base64) for live UI.
+        import base64, io
+        buf = io.BytesIO()
+        # Thumbnail hard-limits bandwidth: 320×640 JPEG Q70 is ~15-25KB.
+        img = image.copy()
+        img.thumbnail((320, 640))
+        if img.mode in ("RGBA", "LA", "P"):
+            img = img.convert("RGB")
+        img.save(buf, format="JPEG", quality=70)
+        emit({
+            "event": "screenshot",
+            "image_b64": base64.standard_b64encode(buf.getvalue()).decode("ascii"),
+            "meta": meta,
+        })
+
+    return AgentController(
+        vision=vision, inputs=inputs, window=window,
+        on_screenshot=on_screenshot,
+    )
 
 
 METHODS = {
@@ -197,5 +287,6 @@ METHODS = {
     "delete": delete,
     "draft": draft,
     "run": run,
+    "subscribe": subscribe,
     "approve_step": approve_step,
 }

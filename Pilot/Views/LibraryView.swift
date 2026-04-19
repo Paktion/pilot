@@ -5,6 +5,7 @@ struct LibraryView: View {
     @State private var workflows: [WorkflowSummary] = []
     @State private var loadError: String?
     @State private var isLoading: Bool = false
+    @State private var runningWorkflowName: String?
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -25,9 +26,7 @@ struct LibraryView: View {
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 240))], spacing: 12) {
                     ForEach(workflows) { wf in
-                        WorkflowCard(workflow: wf) {
-                            Task { await runWorkflow(wf) }
-                        }
+                        WorkflowCard(workflow: wf) { runningWorkflowName = wf.name }
                     }
                 }
             }
@@ -35,6 +34,24 @@ struct LibraryView: View {
         }
         .padding()
         .task { await reload() }
+        .sheet(item: Binding(
+            get: { runningWorkflowName.map { RunSheet(id: $0) } },
+            set: { runningWorkflowName = $0?.id }
+        )) { sheet in
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Live run").font(.title3).bold()
+                    Spacer()
+                    Button("Close") { runningWorkflowName = nil }
+                        .keyboardShortcut(.cancelAction)
+                }
+                .padding()
+                Divider()
+                RunConsoleView(workflowName: sheet.id)
+                    .environmentObject(appState)
+            }
+            .frame(minWidth: 900, minHeight: 600)
+        }
     }
 
     private func reload() async {
@@ -52,18 +69,9 @@ struct LibraryView: View {
             self.loadError = "\(error)"
         }
     }
-
-    private func runWorkflow(_ wf: WorkflowSummary) async {
-        do {
-            _ = try await appState.client.callOnce(
-                method: "workflow.run",
-                params: ["name": wf.name]
-            )
-        } catch {
-            self.loadError = "Run failed: \(error)"
-        }
-    }
 }
+
+struct RunSheet: Identifiable, Hashable { let id: String }
 
 struct WorkflowSummary: Identifiable, Hashable {
     let id: String
