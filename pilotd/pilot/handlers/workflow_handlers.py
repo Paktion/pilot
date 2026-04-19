@@ -232,13 +232,38 @@ def _execute_workflow(
 ) -> None:
     channel = _ACTIVE_RUNS.get(run_id)
 
-    def emit(event: dict[str, Any]) -> None:
+    def raw_emit(event: dict[str, Any]) -> None:
         emit_bridge(event)
         if channel is not None:
             channel.publish(event)
 
+    # Wrap emit with per-run disk persistence. Every screenshot + event
+    # lands in $PILOT_HOME/sessions/<run_id>/ for offline debugging.
+    from pilot.run_logger import RunLogger
+    logger_wrap = RunLogger(
+        run_id=run_id, workflow=defn.name, downstream_emit=raw_emit,
+    )
+    emit = logger_wrap.emit
+    try:
+        emit({
+            "event": "session_path",
+            "path": str(logger_wrap.directory),
+            "run_id": run_id,
+        })
+    except Exception:
+        pass
+
     try:
         _execute_workflow_body(run_id, workflow_id, defn, params, emit)
+        # Persist the session path on the run row for the History view.
+        try:
+            with service.container().memory()._conn() as conn:
+                conn.execute(
+                    "UPDATE runs SET session_path=? WHERE id=?",
+                    (str(logger_wrap.directory), run_id),
+                )
+        except Exception:
+            pass
     except Exception as exc:
         # Catch-all so a bug in setup code (missing service accessor, bad
         # import, etc.) doesn't leave the UI hanging on 'started' forever.
