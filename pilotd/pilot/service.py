@@ -190,6 +190,21 @@ class _Container:
                 existing = self._extractor
             return existing
 
+    def replanner(self):
+        """Claude-backed replanner for ``on_failure: replan`` step modifier."""
+        with self._lock:
+            from pilot.workflow.replanner import Replanner
+            existing = getattr(self, "_replanner", None)
+            if existing is None:
+                cfg = self.config()
+                self._replanner = Replanner(
+                    client=self.planner()._client,
+                    model=cfg.get("model", "claude-sonnet-4-20250514"),
+                    usage=self.usage(),
+                )
+                existing = self._replanner
+            return existing
+
     # ---- workflow loader ---------------------------------------------------
 
     def load_workflow(self, name: str) -> WorkflowDef | None:
