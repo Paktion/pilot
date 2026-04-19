@@ -88,13 +88,37 @@ class GoalAgent:
                 time.sleep(1.0)
                 continue
 
+            # Stream the screenshot to the live UI so the user sees what the
+            # model sees. Emit as a low-res JPEG (~20KB) to avoid blasting
+            # the socket with raw PNG on every tick.
+            self._emit_screenshot(ss, step_idx)
+
+            # Actions taken so far count — helps the prompt enforce navigation
+            # discipline when the goal has explicit steps.
+            actions_so_far = sum(
+                1 for h in history if h.get("role") == "assistant"
+            )
             task_prompt = (
-                f"GOAL: {goal}\n\n"
-                "Emit exactly ONE tool call per turn. If the goal is already "
-                "achieved on the visible screen, call Done with a summary that "
-                "captures what you observed (including any numeric answer). "
-                "If the screen shows an auth/lock wall, call Done with "
-                "summary='BLOCKED_BY_AUTH'."
+                f"GOAL:\n{goal}\n\n"
+                f"This is turn {step_idx + 1}. "
+                f"Actions performed so far: {actions_so_far}.\n\n"
+                "Emit exactly ONE tool call per turn.\n\n"
+                "CRITICAL NAVIGATION RULES:\n"
+                "- If the goal text contains explicit navigation steps "
+                "('tap X', 'scroll until Y', 'open Z'), you MUST execute "
+                "them in order. Reading a widget or summary card that "
+                "looks like the answer does NOT satisfy a goal that asks "
+                "you to navigate INTO an app. Home-screen widgets, lock-"
+                "screen balances, and 'For You' favorites tiles may be "
+                "stale or zeroed — they are NEVER an acceptable Done value "
+                "when the goal asked you to navigate to a specific section.\n"
+                "- Only call Done AFTER the navigation path was executed AND "
+                "the target value is visible on the final destination screen. "
+                "Include the captured value verbatim in the summary.\n"
+                "- If the screen shows an auth/lock wall, call Done with "
+                "summary='BLOCKED_BY_AUTH'.\n"
+                "- If after several turns the path is clearly unreachable, "
+                "call Done with summary='NOT_REACHABLE: <why>'."
             )
 
             try:
@@ -244,6 +268,25 @@ class GoalAgent:
         elif isinstance(action, WaitAction):
             time.sleep(min(float(action.seconds), _MAX_WAIT_SECONDS))
         # DoneAction handled in the outer loop
+
+
+    def _emit_screenshot(self, image, step_idx: int) -> None:
+        """Stream a JPEG thumbnail of the current screen to the UI."""
+        try:
+            import base64, io
+            img = image.copy()
+            img.thumbnail((320, 640))
+            if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=70)
+            self._emit({
+                "event": "screenshot",
+                "image_b64": base64.standard_b64encode(buf.getvalue()).decode("ascii"),
+                "meta": {"kind": "goal", "step": step_idx},
+            })
+        except Exception:
+            log.debug("goal: screenshot emit failed", exc_info=True)
 
 
 def _is_stuck(recent: deque[tuple[str, int, int]], sig: tuple[str, int, int]) -> bool:
