@@ -81,6 +81,7 @@ class AgentController:
         inputs: InputSimulator,
         window: MirroringWindowManager,
         on_screenshot: Callable[[Image.Image, dict[str, Any]], None] | None = None,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
         lookup_hint: Callable[[str], dict | None] | None = None,
         save_hint: Callable[[str, int], None] | None = None,
     ) -> None:
@@ -88,6 +89,7 @@ class AgentController:
         self._inputs = inputs
         self._window = window
         self._on_screenshot = on_screenshot or (lambda *_: None)
+        self._on_event = on_event or (lambda _event: None)
         self._lookup_hint = lookup_hint
         self._save_hint = save_hint
 
@@ -236,11 +238,12 @@ class AgentController:
         return False
 
     def _emit_thought(self, action_kind: str, thought: str, confidence: float) -> None:
-        """Forward Claude's reasoning through the screenshot callback channel
-        so the live UI can render it. Cheap re-use — no new callback slot."""
-        self._on_screenshot(self._window.capture_screenshot() if False else None,  # noqa: E501
-                            {"kind": "thought", "action": action_kind,
-                             "thought": thought, "confidence": round(confidence, 2)})
+        """Forward Claude's reasoning to the live-run stream."""
+        self._on_event({
+            "event": "step",
+            "step": -1,
+            "kind": f"🧠 {action_kind}  conf={confidence:.2f}  — {thought[:80]}",
+        })
 
     def _try_swipe(self, direction: str, *, gentle: bool = False) -> None:
         """Swipe without letting a geometry error abort the whole wait loop.

@@ -351,6 +351,7 @@ def _build_live_controller(
     return AgentController(
         vision=vision, inputs=inputs, window=window,
         on_screenshot=on_screenshot,
+        on_event=emit,
         lookup_hint=lookup_hint,
         save_hint=save_hint,
     )
