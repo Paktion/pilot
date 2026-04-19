@@ -41,7 +41,25 @@ async def full_check(_: dict[str, Any], emit: Emit) -> None:
     await emit({"event": "done", "status": "ok" if report["all_ok"] else "issues", **report})
 
 
+async def mirroring(_: dict[str, Any], emit: Emit) -> None:
+    """Fast, focused probe of iPhone Mirroring availability.
+
+    Cheaper than ``health.full_check`` because it skips the Accessibility +
+    Screen Recording subprocess round-trips. Callable on every pre-run gate
+    without hammering the system.
+    """
+    from pilot.core.utils.sys_checks import check_iphone_mirroring_window
+    ok, desc = check_iphone_mirroring_window()
+    await emit({
+        "event": "done",
+        "status": "ok" if ok else "unavailable",
+        "available": ok,
+        "detail": desc,
+    })
+
+
 METHODS = {
     "check": check,
     "full_check": full_check,
+    "mirroring": mirroring,
 }

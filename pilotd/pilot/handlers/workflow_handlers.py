@@ -237,6 +237,28 @@ def _execute_workflow(
         if channel is not None:
             channel.publish(event)
 
+    # Pre-flight: refuse gracefully when iPhone Mirroring isn't running.
+    # Skipping cleanly beats a stack trace from the capture layer.
+    from pilot.core.utils.sys_checks import check_iphone_mirroring_window
+    mirroring_ok, mirroring_desc = check_iphone_mirroring_window()
+    if not mirroring_ok:
+        nice = (
+            "⏸ iPhone Mirroring isn't connected. Open the iPhone Mirroring "
+            "app and connect your phone, then try again."
+        )
+        service.container().memory().finish_run(
+            run_id, status="skipped", summary=nice,
+        )
+        emit({
+            "event": "done",
+            "status": "skipped",
+            "reason": "mirroring_unavailable",
+            "summary": nice,
+            "detail": mirroring_desc,
+        })
+        log.info("workflow %s skipped — Mirroring unavailable", defn.name)
+        return
+
     try:
         controller = _build_live_controller(emit)
     except Exception as exc:
