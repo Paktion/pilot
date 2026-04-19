@@ -354,13 +354,31 @@ def _build_live_controller(
     save_hint: Callable[[str, int], None] | None = None,
 ):
     from pilot.core.controller import AgentController
-    from pilot.core.input_simulator import InputSimulator
+    from pilot.core.input_simulator import CGEventInputSimulator, InputSimulator
     from pilot.core.vision import VisionAgent
     from pilot.core.window_capture import MirroringWindowManager
 
     window = MirroringWindowManager()
-    inputs = InputSimulator(window_manager=window)
-    vision = VisionAgent(model=service.container().config().get("model"))
+
+    # Default to the non-intrusive CGEvent backend: it posts events directly
+    # to the iPhone Mirroring process via CGEventPostToPid, so our cursor
+    # doesn't travel and Pilot.app keeps focus. Fall back to the pyautogui
+    # path only if the user has explicitly disabled CGEvent in config or the
+    # Quartz import fails at runtime.
+    cfg = service.container().config()
+    use_cgevent = bool(cfg.get("use_cgevent", True))
+    if use_cgevent:
+        try:
+            inputs = CGEventInputSimulator(window_manager=window)
+            log.info("controller: using CGEventInputSimulator (non-intrusive)")
+        except Exception as exc:
+            log.warning("CGEvent backend unavailable (%s) — falling back to pyautogui", exc)
+            inputs = InputSimulator(window_manager=window)
+    else:
+        inputs = InputSimulator(window_manager=window)
+        log.info("controller: using InputSimulator (pyautogui) per config")
+
+    vision = VisionAgent(model=cfg.get("model"))
 
     def on_screenshot(image, meta):
         # Emit a compact screenshot event (JPEG-encoded + base64) for live UI.

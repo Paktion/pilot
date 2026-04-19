@@ -2,22 +2,23 @@ version: 1
 name: Check OSU Dining Swipes
 app: Ohio State
 tags: [campus, weekly]
-description: Reads remaining meal swipes. If zero, abort cleanly.
+description: |
+  Goal-directed: opens the Ohio State app and drives it autonomously
+  to read a dining balance or meal-swipe count. Adaptive — works even
+  when the UI has moved the answer between tabs.
 
 steps:
   - launch: Ohio State
-  - wait_for: ["Dining", "Dining Locations", "Meal Swipes", "Food"]
-    max_scrolls: 2
-    timeout_s: 25
-  - tap: ["Dining", "Dining Locations", "Meal Swipes", "Food"]
-  - wait_for: ["swipes", "remaining", "meal plan"]
-    max_scrolls: 3
-  - read_as: remaining_swipes
-    pattern: "([0-9]+)\\s*swipes"
+  - goal: |
+      Find and report a dining-related number visible on screen — either
+      remaining meal swipes (preferred) OR Dining Dollars balance OR BuckID
+      Cash. Navigate by tapping tabs/buttons as needed. Scroll if content
+      extends below the fold. When a dining number is clearly visible on
+      the screen, call Done with a summary like 'Dining Dollars: $12.34'
+      or 'Swipes remaining: 7'. Do not tap payment confirmations.
+    budget: 12
+    capture_as: dining_balance
   - remember:
-      key: last_swipe_count
-      value: "{{ remaining_swipes }}"
-  - abort_if: "{{ remaining_swipes | int == 0 }}"
-
-on_success:
-  run: Reorder Chipotle Bowl
+      key: last_dining_balance
+      value: "{{ dining_balance }}"
+  - done: "Recorded dining balance: {{ dining_balance }}"
