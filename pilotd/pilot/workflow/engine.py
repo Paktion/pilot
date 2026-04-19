@@ -133,14 +133,14 @@ class WorkflowEngine:
                 try:
                     self._run_step(step, ctx)
                 except WorkflowFailed as exc:
-                    handled, new_steps, budget_left = self._handle_step_failure(
-                        defn, step, idx, exc, ctx, replans_remaining,
+                    from pilot.workflow.engine_steps import handle_step_failure
+                    handled, new_steps, budget_left = handle_step_failure(
+                        self, defn, step, idx, exc, ctx, replans_remaining,
                     )
                     replans_remaining = budget_left
                     if handled:
-                        # Splice new steps in place of the failed one.
                         steps = steps[:idx] + new_steps + steps[idx + 1:]
-                        continue  # don't increment idx — re-enter at replacement
+                        continue
                     raise
                 idx += 1
         except WorkflowAborted as exc:
