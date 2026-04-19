@@ -1,0 +1,19 @@
+version: 1
+name: Check Today's Weather
+app: Weather
+tags: [demo, safe]
+description: Opens Weather, reads today's high temp. Single-screen, deterministic, no auth.
+
+steps:
+  - launch: Weather
+  - wait_for: ["Today", "H:", "L:", "°"]
+    max_scrolls: 1
+    timeout_s: 15
+  - extract: today_high
+    question: "What is today's high temperature as a number? Extract the numeric value only (e.g. 74)."
+    type: int
+    hint: "Shown as 'H: NN°' at the top of the current-location card."
+  - remember:
+      key: last_weather_high
+      value: "{{ today_high }}"
+  - done: "High: {{ today_high }}°"

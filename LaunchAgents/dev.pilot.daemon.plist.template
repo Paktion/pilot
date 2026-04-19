@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>dev.pilot.daemon</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <!-- {{PYTHON_PATH}} is substituted on first-run install.
+           Resolver order:
+             1. xcrun --find python3
+             2. /opt/homebrew/bin/python3
+             3. /usr/bin/python3
+      -->
+      <string>{{PYTHON_PATH}}</string>
+      <string>-m</string>
+      <string>pilot</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{PILOT_HOME}}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PYTHONUNBUFFERED</key>
+      <string>1</string>
+      <key>PILOT_HOME</key>
+      <string>{{PILOT_HOME}}</string>
+      <!-- ANTHROPIC_API_KEY and PILOT_PROMPT_* loaded from $PILOT_HOME/.env at
+           daemon startup via pilotd/pilot/prompts.py. Do NOT embed prompt or
+           key text here. -->
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/pilotd.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/pilotd.err</string>
+  </dict>
+</plist>

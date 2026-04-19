@@ -1,0 +1,30 @@
+version: 1
+name: Check OSU Dining Swipes
+app: Ohio State
+tags: [campus, weekly]
+description: Reads remaining meal swipes from the For You page's BuckID section.
+
+steps:
+  - launch: Ohio State
+  - goal: |
+      Find the remaining meal-swipe count. Follow this path exactly:
+        1. Tap "For You" in the BOTTOM navigation bar (it's the leftmost
+           tab in the tab strip at the bottom of the screen — NOT the
+           top-right "Campus" button).
+        2. On the For You page, scroll DOWN until you see a BuckID
+           section (labeled "BuckID", "BuckID Account", or showing a
+           card with balance rows).
+        3. In that BuckID section find the "Swipes" row — the value
+           is an integer like 7 or 14.
+        4. Call Done with summary like "Swipes remaining: 7" so the
+           number is captured. Extract ONLY the integer count of
+           swipes, NOT a dollar amount.
+
+      Do NOT tap anything outside this path. Do NOT tap payment,
+      purchase, or confirm buttons.
+    budget: 12
+    capture_as: swipes_remaining
+  - remember:
+      key: last_swipe_count
+      value: "{{ swipes_remaining }}"
+  - done: "Swipes remaining: {{ swipes_remaining }}"
