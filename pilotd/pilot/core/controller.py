@@ -362,7 +362,19 @@ class AgentController:
         retina factor AND any client-side downscale), then subtract the
         title bar and bezel offsets to land in phone-screen-relative space.
         """
+        from pilot.core.vision.agent import _MAX_IMAGE_DIMENSION
         img_w, img_h = screenshot.size
+        # Replicate the resize Claude sees so coords scale correctly.
+        # Telling Claude the original size but sending a resized JPEG
+        # offsets every tap vertically by the resize ratio — fixed.
+        if max(img_w, img_h) > _MAX_IMAGE_DIMENSION:
+            if img_w >= img_h:
+                new_w = _MAX_IMAGE_DIMENSION
+                new_h = int(img_h * _MAX_IMAGE_DIMENSION / img_w)
+            else:
+                new_h = _MAX_IMAGE_DIMENSION
+                new_w = int(img_w * _MAX_IMAGE_DIMENSION / img_h)
+            img_w, img_h = new_w, new_h
         bounds = self._window.get_window_bounds()
         win_w = float(bounds.get("width", img_w))
         win_h = float(bounds.get("height", img_h))
