@@ -5,6 +5,8 @@
 CLAUDE.md
 PLAN.md
 AGENTIC_COMPARISON.md
+# Minimal public README is the only tracked .md — everything else stays private.
+!README.md
 
 # Internal research / reference material
 _research/

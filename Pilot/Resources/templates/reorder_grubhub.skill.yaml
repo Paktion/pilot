@@ -1,0 +1,23 @@
+version: 1
+name: Reorder Chipotle Bowl
+app: Grubhub
+tags: [food, weekly]
+description: Reorders my usual Chipotle bowl.
+
+params:
+  tip_percent:
+    type: int
+    default: 20
+
+steps:
+  - launch: Grubhub
+  - wait_for: "Reorder"
+  - tap: "Reorder"
+  - wait_for: "Chipotle"
+  - tap_near: "Chipotle"
+    prefer: first
+  - read_as: last_total
+    pattern: "Total \\$([0-9.]+)"
+  - tap: "Checkout"
+  - tap: "Place order"
+  - screenshot: order_confirmation
