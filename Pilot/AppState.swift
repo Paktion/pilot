@@ -109,8 +109,9 @@ final class AppState: ObservableObject {
     private func daemonSocketExists() -> Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let socket = home.appendingPathComponent("Library/Application Support/Pilot/pilotd.sock")
-        var stat = Darwin.stat()
-        return Darwin.stat(socket.path, &stat) == 0
+        // A Unix socket file shows up via fileExists; the socket itself isn't
+        // a regular file but FileManager returns true for it on macOS.
+        return FileManager.default.fileExists(atPath: socket.path)
     }
 
     private func locateLauncher() -> String {
