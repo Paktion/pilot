@@ -6,15 +6,18 @@ description: Reads remaining meal swipes. If zero, abort cleanly.
 
 steps:
   - launch: Ohio State
-  - wait_for: "Dining"
-  - tap: "Dining"
-  - wait_for: "swipes"
+  - wait_for: ["Dining", "Dining Locations", "Meal Swipes", "Food"]
+    max_scrolls: 2
+    timeout_s: 25
+  - tap: ["Dining", "Dining Locations", "Meal Swipes", "Food"]
+  - wait_for: ["swipes", "remaining", "meal plan"]
+    max_scrolls: 3
   - read_as: remaining_swipes
-    pattern: "([0-9]+) swipes remaining"
+    pattern: "([0-9]+)\\s*swipes"
   - remember:
       key: last_swipe_count
       value: "{{ remaining_swipes }}"
   - abort_if: "{{ remaining_swipes | int == 0 }}"
 
 on_success:
-  run: reorder_grubhub
+  run: Reorder Chipotle Bowl
