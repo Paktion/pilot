@@ -40,6 +40,7 @@ def _load_handlers() -> dict[str, Handler]:
         run_handlers,
         schedule_handlers,
         session_handlers,
+        usage_handlers,
         workflow_handlers,
     )
 
@@ -50,6 +51,7 @@ def _load_handlers() -> dict[str, Handler]:
         "run": run_handlers,
         "schedule": schedule_handlers,
         "session": session_handlers,
+        "usage": usage_handlers,
         "workflow": workflow_handlers,
     }
     for category, mod in modules.items():
