@@ -41,7 +41,7 @@ class Config:
         "per_task_budget":        ((int, float),       1.0),
         "log_level":              (str,                "INFO"),
         "session_retention_days": (int,                30),
-        "use_cgevent":            (bool,               True),
+        "use_cgevent":            (bool,               False),
     }
 
     DEFAULT_CONFIG: dict[str, Any] = {k: v for k, (_t, v) in CONFIG_SCHEMA.items()}

@@ -157,11 +157,18 @@ class CGEventInputSimulator:
         return CGEventCreateKeyboardEvent(None, keycode, key_down)
 
     def click(self, x: float, y: float, duration: float = 0.0) -> None:
-        """Tap at phone-screen-relative *(x, y)*; ``duration > 0`` = long-press."""
+        """Tap at phone-screen-relative *(x, y)*; ``duration > 0`` = long-press.
+
+        Briefly activates Mirroring before posting so iOS actually receives
+        the event. CGEventPostToPid targets the Mirroring process, but if
+        Mirroring isn't the frontmost window, macOS can route the event
+        outside the mirror pipe and iOS never sees it.
+        """
         refresh_bounds(self._wm)
         bounds = get_bounds(self._wm)
         bounds_check_with(x, y, bounds)
         abs_x, abs_y = to_absolute_with(x, y, bounds)
+        self._activate_mirroring()
 
         logger.info(
             "CGEvent click  rel=(%s, %s)  abs=(%s, %s)  duration=%s",
@@ -337,14 +344,15 @@ class CGEventInputSimulator:
     def type_text(self, text: str, interval: float = 0.02) -> None:
         """Type *text* by sending CGEvent keyboard events.
 
-        ASCII uses per-character key-down/key-up pairs; non-ASCII falls
-        back to ``pbcopy`` + ``Cmd+V`` routed to the iPhone Mirroring
-        process.
+        Briefly activates iPhone Mirroring so the key events reach iOS
+        through the mirror pipe — without this, CGEvent keys post to the
+        PID but get dropped if Mirroring isn't the frontmost window.
         """
         if not text:
             return
 
         refresh_bounds(self._wm)
+        self._activate_mirroring()
 
         logger.info("CGEvent type_text  length=%d  text=%r", len(text), text[:80])
 
@@ -363,14 +371,28 @@ class CGEventInputSimulator:
 
         self._post_action_delay()
 
+    @staticmethod
+    def _activate_mirroring() -> None:
+        """Activate iPhone Mirroring just long enough for keyboard events to
+        route through its mirror pipe. Small focus nudge; cheaper than the
+        pyautogui approach that activates for every click."""
+        from pilot.core.input_simulator._focus import activate_mirroring
+        try:
+            activate_mirroring()
+        except Exception as exc:
+            logger.debug("activate_mirroring failed: %s", exc)
+
     def press_key(
         self,
         key: str,
         modifiers: Optional[Sequence[str]] = None,
     ) -> None:
-        """Press *key* with optional *modifiers* via ``CGEventPostToPid`` --
-        no focus change needed."""
+        """Press *key* with optional *modifiers* via ``CGEventPostToPid``.
+
+        Briefly activates Mirroring first — same rationale as type_text.
+        """
         refresh_bounds(self._wm)
+        self._activate_mirroring()
 
         keycode = _KEY_NAME_TO_KEYCODE.get(key.lower())
         if keycode is None:
