@@ -16,6 +16,7 @@
 		383C1FF9FC14D7BD1704409A /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26121D1119D100981845FBA3 /* LibraryView.swift */; };
 		3967AD23C965956ADC5FCE65 /* Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AF39BB1F64E7B6EDDAFFA61 /* Events.swift */; };
 		52E4C10B20A95F8A147B14FA /* PermissionStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6EF1FB29988B7D476519B5E /* PermissionStatus.swift */; };
+		56B7AAD6854EBB5187AE60BB /* check_weather.skill.yaml in Resources */ = {isa = PBXBuildFile; fileRef = 09BECB08EDDA39521263B5B1 /* check_weather.skill.yaml */; };
 		58F18D51757E5EE469EFA5E3 /* ScheduleEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D581003DC915D5B45DE712F /* ScheduleEntry.swift */; };
 		621B60490C2AFCD0FFDC8DAB /* MemoryEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F37DAAE24050BBCC3FDB979F /* MemoryEntry.swift */; };
 		73AF6DA70A83C09DEFC6098A /* SessionReplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9085FF59501DFBC759CE78 /* SessionReplayView.swift */; };
@@ -39,6 +40,7 @@
 
 /* Begin PBXFileReference section */
 		033B7B0DFB321D06AF6959AE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		09BECB08EDDA39521263B5B1 /* check_weather.skill.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = check_weather.skill.yaml; sourceTree = "<group>"; };
 		12A73BF60281FCD11EBBF02A /* reorder_grubhub.skill.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = reorder_grubhub.skill.yaml; sourceTree = "<group>"; };
 		170D220593C4182DAE24883A /* ScheduleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleView.swift; sourceTree = "<group>"; };
 		1C382DC06D8F2B24F72D7FEA /* DaemonLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonLifecycle.swift; sourceTree = "<group>"; };
@@ -75,6 +77,7 @@
 			isa = PBXGroup;
 			children = (
 				C37D1DE888FEE51742418469 /* check_osu_swipes.skill.yaml */,
+				09BECB08EDDA39521263B5B1 /* check_weather.skill.yaml */,
 				BCF4CC2B69A72BBBC0A72AEC /* pay_spectrum_bill.skill.yaml */,
 				12A73BF60281FCD11EBBF02A /* reorder_grubhub.skill.yaml */,
 			);
@@ -232,6 +235,7 @@
 			files = (
 				7C9B07D95B79E83FAE90576F /* Assets.xcassets in Resources */,
 				C6CFE47BFADF86145A6F09F3 /* check_osu_swipes.skill.yaml in Resources */,
+				56B7AAD6854EBB5187AE60BB /* check_weather.skill.yaml in Resources */,
 				73CD86FD48E0413CA54C954C /* pay_spectrum_bill.skill.yaml in Resources */,
 				E4A7AFF6B32C62C5BA75C463 /* reorder_grubhub.skill.yaml in Resources */,
 			);

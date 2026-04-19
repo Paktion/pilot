@@ -94,7 +94,7 @@ struct SettingsView: View {
                         .controlSize(.small)
                     }
                 }
-                Text("The key lives in .env (gitignored). Drop the `sk-ant-…` string into /Users/sohumsuthar/Documents/GitHub/pilot-workspace/pilot/.env — no restart needed.")
+                Text("The key lives in .env at the repo root (gitignored). Drop the `sk-ant-…` string after `ANTHROPIC_API_KEY=` and save — no daemon restart needed.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

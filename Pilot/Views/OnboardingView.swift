@@ -109,7 +109,7 @@ struct OnboardingView: View {
                 Text(keyPresent ? "Key detected" : "No key yet")
             }
             if !keyPresent {
-                Text("Open `/Users/sohumsuthar/Documents/GitHub/pilot-workspace/pilot/.env` and replace `sk-ant-REPLACE-ME` with your key.")
+                Text("Open the `.env` file at the Pilot repo root and replace `sk-ant-REPLACE-ME` with your key.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
