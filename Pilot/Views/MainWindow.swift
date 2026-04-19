@@ -38,6 +38,30 @@ struct MainWindow: View {
             Text(appState.daemonConnected ? "daemon connected" : "daemon offline")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if !appState.daemonConnected {
+                if appState.connectAttempting {
+                    ProgressView().controlSize(.mini)
+                    Text(appState.connectStatus)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                } else {
+                    Button("Connect") { Task { await appState.tryConnect() } }
+                        .controlSize(.mini)
+                        .buttonStyle(.borderless)
+                    Button("Start daemon") { Task { await appState.startDaemon() } }
+                        .controlSize(.mini)
+                        .buttonStyle(.borderless)
+                    if !appState.connectStatus.isEmpty {
+                        Text(appState.connectStatus)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
             Spacer()
             HStack(spacing: 4) {
                 Image(systemName: "dollarsign.circle")
