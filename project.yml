@@ -1,0 +1,35 @@
+name: Pilot
+options:
+  bundleIdPrefix: dev.pilot
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+targets:
+  Pilot:
+    type: application
+    platform: macOS
+    sources:
+      - path: Pilot
+        excludes:
+          - "Resources/*.plist.template"
+    resources:
+      - path: Pilot/Resources/templates
+        type: folder
+      - path: Pilot/Resources/Assets.xcassets
+    info:
+      path: Pilot/Info.plist
+      properties:
+        CFBundleName: Pilot
+        CFBundleShortVersionString: "0.0.1"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "14.0"
+        LSUIElement: true
+        NSHumanReadableCopyright: "Copyright © 2026 Pilot contributors"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pilot.app
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.9"
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"

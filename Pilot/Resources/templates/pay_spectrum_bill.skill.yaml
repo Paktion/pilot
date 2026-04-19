@@ -1,0 +1,18 @@
+version: 1
+name: Pay Spectrum Bill
+app: Spectrum
+tags: [bills, monthly]
+description: Reads current bill. Aborts if >1.5x median of last 6.
+
+steps:
+  - launch: Spectrum
+  - wait_for: "Pay"
+  - read_as: bill_amount
+    pattern: "\\$([0-9]+\\.[0-9]{2})"
+  - abort_if: "{{ bill_amount | float > (memory.median_spectrum_last6 | float * 1.5) }}"
+  - tap: "Pay"
+  - tap: "Confirm"
+  - screenshot: payment_confirmation
+  - remember:
+      key: last_spectrum_bill
+      value: "{{ bill_amount }}"

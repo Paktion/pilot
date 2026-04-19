@@ -1,0 +1,20 @@
+version: 1
+name: Check OSU Dining Swipes
+app: Ohio State
+tags: [campus, weekly]
+description: Reads remaining meal swipes. If zero, abort cleanly.
+
+steps:
+  - launch: Ohio State
+  - wait_for: "Dining"
+  - tap: "Dining"
+  - wait_for: "swipes"
+  - read_as: remaining_swipes
+    pattern: "([0-9]+) swipes remaining"
+  - remember:
+      key: last_swipe_count
+      value: "{{ remaining_swipes }}"
+  - abort_if: "{{ remaining_swipes | int == 0 }}"
+
+on_success:
+  run: reorder_grubhub
