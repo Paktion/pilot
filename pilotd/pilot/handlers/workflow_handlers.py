@@ -237,6 +237,33 @@ def _execute_workflow(
         if channel is not None:
             channel.publish(event)
 
+    try:
+        _execute_workflow_body(run_id, workflow_id, defn, params, emit)
+    except Exception as exc:
+        # Catch-all so a bug in setup code (missing service accessor, bad
+        # import, etc.) doesn't leave the UI hanging on 'started' forever.
+        log.exception("workflow worker crashed for %s", defn.name)
+        try:
+            service.container().memory().finish_run(
+                run_id, status="failed",
+                summary=f"worker crashed: {type(exc).__name__}: {exc}",
+            )
+        except Exception:
+            pass
+        emit({
+            "event": "done",
+            "status": "failed",
+            "summary": f"worker crashed: {type(exc).__name__}: {exc}",
+        })
+
+
+def _execute_workflow_body(
+    run_id: str,
+    workflow_id: str,
+    defn: WorkflowDef,
+    params: dict[str, Any],
+    emit: Callable[[dict[str, Any]], None],
+) -> None:
     # Pre-flight: refuse gracefully when iPhone Mirroring isn't running.
     # Skipping cleanly beats a stack trace from the capture layer.
     from pilot.core.utils.sys_checks import check_iphone_mirroring_window
