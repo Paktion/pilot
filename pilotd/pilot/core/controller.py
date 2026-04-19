@@ -118,6 +118,11 @@ class AgentController:
     def _current_screenshot(self) -> Image.Image:
         return self._window.capture_screenshot()
 
+    def screenshot(self) -> Image.Image:
+        """Public screenshot accessor for the workflow engine's EXTRACT and
+        GOAL steps. Returns the current iPhone Mirroring window capture."""
+        return self._current_screenshot()
+
     @staticmethod
     def _normalize_keywords(labels: str | list[str]) -> list[str]:
         if isinstance(labels, str):
