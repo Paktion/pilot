@@ -253,9 +253,7 @@ class WorkflowEngine:
         elif kind is StepKind.EXTRACT:
             self._run_extract(step, ctx)
         elif kind is StepKind.GOAL:
-            # GOAL is handled in round 5c — for now emit a clear error so the
-            # workflow doesn't silently skip.
-            raise WorkflowFailed("goal: step not yet implemented in this build")
+            self._run_goal(step, ctx)
         elif kind is StepKind.REMEMBER:
             key = self._interp(step.value_for("key"), ctx)
             raw_val = self._interp(step.value_for("value"), ctx)
@@ -414,6 +412,36 @@ class WorkflowEngine:
             return True, [], replans_remaining  # empty replacement = just advance
 
         return False, [], replans_remaining
+
+    def _run_goal(self, step: Step, ctx: RunContext) -> None:
+        """Launch the goal-directed agent for this step.
+
+        YAML:
+            - goal: "Find my remaining meal swipes on the OSU meal plan"
+              budget: 12         # optional, default 15
+              capture_as: swipes # optional — numeric captured answer → variable
+        """
+        from pilot.workflow.goal_agent import GoalAgent
+
+        goal_text = self._interp(step.primary, ctx)
+        budget = int(step.value_for("budget", 15))
+        capture_var = step.value_for("capture_as")
+        vision = getattr(self._controller, "_vision", None)
+        if vision is None:
+            raise WorkflowFailed("goal: controller is missing its vision agent")
+
+        agent = GoalAgent(
+            controller=self._controller,
+            vision=vision,
+            emit=self._emit,
+        )
+        result = agent.pursue(
+            goal=goal_text, budget_steps=budget, capture_var=capture_var,
+        )
+        if capture_var and result.captured is not None:
+            ctx.variables[capture_var] = result.captured
+        if result.status != "success":
+            raise WorkflowFailed(f"goal: {result.summary}")
 
     def _run_extract(self, step: Step, ctx: RunContext) -> None:
         """Vision-based structured extraction.
