@@ -66,23 +66,14 @@ def _find_mirroring_pid() -> int | None:
                 return int(pid)
     return None
 
-# CGEventPostToPid availability check.
-try:
-    from Quartz import CGEventPostToPid as _cg_event_post_to_pid  # type: ignore[attr-defined]
-    _HAS_POST_TO_PID = True
-except ImportError:
-    _HAS_POST_TO_PID = False
-    _cg_event_post_to_pid = None
-
-def _post_event(event: Any, pid: int | None) -> None:
-    """Post *event* to iPhone Mirroring; prefers ``CGEventPostToPid`` so
-    the visible cursor isn't moved, falling back to ``CGEventPost`` at
-    the HID event tap when the PID-targeted variant is unavailable.
-    """
-    if _HAS_POST_TO_PID and pid is not None:
-        _cg_event_post_to_pid(pid, event)
-    else:
-        CGEventPost(kCGHIDEventTap, event)
+# NOTE: do NOT add a CGEventPostToPid path here. iPhone Mirroring only
+# translates synthetic events into iOS input when they arrive through the
+# system HID event tap (kCGHIDEventTap) — the same pipe a physical keyboard
+# or trackpad feeds. PID-targeted delivery lands in Mirroring's local event
+# queue and is silently dropped before reaching iOS, which presents as
+# "tap/keystroke logged, nothing happened on the phone." Always post via
+# kCGHIDEventTap; call _activate_mirroring() first so Mirroring is the
+# frontmost window and the HID-tap event routes to it.
 
 class CGEventInputSimulator:
     """Non-intrusive input simulator using Quartz CGEvent APIs.
@@ -146,17 +137,19 @@ class CGEventInputSimulator:
             time.sleep(self._action_delay)
 
     def _post(self, event: Any) -> None:
-        _post_event(event, self._get_pid())
-
-    def _post_hid(self, event: Any) -> None:
         """Post *event* to the system HID event tap.
 
-        Keyboard events only translate into iOS input when iPhone Mirroring
-        sees them through the same pipe a physical keyboard would use; the
-        PID-targeted path delivers to Mirroring's local queue but drops on
-        the floor before reaching iOS. Clicks stay on the PID path.
+        Both mouse and keyboard events need to arrive through the HID tap
+        (the same pipe a physical keyboard/trackpad feeds) for iPhone
+        Mirroring to translate them into iOS input. The PID-targeted path
+        delivers to Mirroring's local queue but drops on the floor before
+        reaching iOS. _activate_mirroring() ensures Mirroring is frontmost
+        so HID-tap events route to it.
         """
         CGEventPost(kCGHIDEventTap, event)
+
+    # Alias kept for callers that were specifically asking for the HID path.
+    _post_hid = _post
 
     def _make_mouse_event(
         self, event_type: int, x: int, y: int, button: int = kCGMouseButtonLeft

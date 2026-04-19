@@ -184,6 +184,10 @@ class InputSimulator:
         bounds = get_bounds(self._wm)
         bounds_check_with(x, y, bounds)
         abs_x, abs_y = to_absolute_with(x, y, bounds)
+        # Mirroring must be frontmost when the click fires, otherwise the
+        # synthetic event lands on whichever window is actually at that
+        # absolute coord (Pilot.app, the Finder, etc.) and iOS sees nothing.
+        activate_mirroring()
         logger.info(
             "click  rel=(%s, %s)  abs=(%s, %s)  duration=%s",
             x, y, abs_x, abs_y, duration,
@@ -216,6 +220,7 @@ class InputSimulator:
         bounds = get_bounds(self._wm)
         bounds_check_with(x, y, bounds)
         abs_x, abs_y = to_absolute_with(x, y, bounds)
+        activate_mirroring()
         logger.info("double_click  rel=(%s, %s)  abs=(%s, %s)", x, y, abs_x, abs_y)
 
         self._click_with_fallback(
@@ -269,6 +274,8 @@ class InputSimulator:
 
         abs_sx, abs_sy = to_absolute_with(start_x, start_y, bounds)
         abs_ex, abs_ey = to_absolute_with(end_x, end_y, bounds)
+
+        activate_mirroring()
 
         logger.info(
             "swipe  from=(%s,%s) to=(%s,%s)  duration=%s",
