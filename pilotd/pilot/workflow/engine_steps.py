@@ -78,6 +78,7 @@ def run_goal(engine: "WorkflowEngine", step: Step, ctx: "RunContext") -> None:
         controller=engine._controller,
         vision=vision,
         emit=engine._emit,
+        extractor=engine._extractor,
     )
     result = agent.pursue(
         goal=goal_text, budget_steps=budget, capture_var=capture_var,

@@ -2,17 +2,25 @@ version: 1
 name: Check Today's Weather
 app: Weather
 tags: [demo, safe]
-description: Opens Weather, reads today's high temp. Single-screen, deterministic, no auth.
+description: Opens Weather via Spotlight, reads today's high temp. Single-screen, deterministic, no auth.
 
 steps:
-  - launch: Weather
-  - wait_for: ["Today", "H:", "L:", "°"]
-    max_scrolls: 1
-    timeout_s: 15
+  - press_key: "1"
+    modifiers: ["command"]
+  - press_key: "3"
+    modifiers: ["command"]
+  - wait_for: ["Search"]
+    max_scrolls: 0
+    timeout_s: 10
+  - type_text: "Weather"
+  - press_key: "enter"
+  - wait_for: ["H:", "L:"]
+    max_scrolls: 0
+    timeout_s: 20
   - extract: today_high
     question: "What is today's high temperature as a number? Extract the numeric value only (e.g. 74)."
     type: int
-    hint: "Shown as 'H: NN°' at the top of the current-location card."
+    hint: "Shown as 'H: NN°' on the current-location card near the top of the screen."
   - remember:
       key: last_weather_high
       value: "{{ today_high }}"

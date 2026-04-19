@@ -24,8 +24,13 @@ from pilot.core.vision import (
     ActionType,
     ClickAction,
     DoneAction,
+    ExtractAction,
     KeyAction,
+    LaunchAppAction,
+    LongPressAction,
+    PressHomeAction,
     SwipeAction,
+    TapTextAction,
     TypeAction,
     VisionAgent,
     WaitAction,
@@ -57,10 +62,12 @@ class GoalAgent:
         controller: Any,  # AgentController — typed Any to avoid import cycle
         vision: VisionAgent,
         emit: Callable[[dict[str, Any]], None],
+        extractor: Any | None = None,
     ) -> None:
         self._controller = controller
         self._vision = vision
         self._emit = emit
+        self._extractor = extractor
 
     def pursue(
         self,
@@ -219,7 +226,7 @@ class GoalAgent:
 
             # Dispatch the action via the controller's low-level primitives.
             try:
-                self._dispatch(action)
+                self._dispatch(action, history)
             except MirroringLockedError:
                 raise
             except Exception as exc:
@@ -260,25 +267,75 @@ class GoalAgent:
             history=history,
         )
 
-    def _dispatch(self, action: ActionType) -> None:
-        """Send the LLM's action to the right controller primitive."""
+    def _dispatch(self, action: ActionType, history: list[dict]) -> None:
+        """Send the LLM's action to the right controller primitive.
+
+        Extract is the only dispatcher with a side effect on ``history`` —
+        it appends the observed answer so the next turn sees it.
+        """
         if isinstance(action, ClickAction):
-            # Convert pixel coords to phone-screen points, same path as tap_text.
             ss = self._controller.screenshot()
             px, py = self._controller._to_phone_points(action.x, action.y, ss)
             self._controller._inputs.click(px, py)
+        elif isinstance(action, TapTextAction):
+            self._controller.tap_text(action.text, prefer=action.prefer)
         elif isinstance(action, SwipeAction):
             ss = self._controller.screenshot()
             sx, sy = self._controller._to_phone_points(action.start_x, action.start_y, ss)
             ex, ey = self._controller._to_phone_points(action.end_x, action.end_y, ss)
             self._controller._inputs.swipe(sx, sy, ex, ey)
+        elif isinstance(action, LongPressAction):
+            ss = self._controller.screenshot()
+            px, py = self._controller._to_phone_points(action.x, action.y, ss)
+            self._controller._inputs.long_press(px, py, duration=float(action.duration))
         elif isinstance(action, TypeAction):
             self._controller._inputs.type_text(action.text)
         elif isinstance(action, KeyAction):
             self._controller._inputs.press_key(action.key, modifiers=action.modifiers)
+        elif isinstance(action, PressHomeAction):
+            self._controller._inputs.home()
+            time.sleep(0.8)
+        elif isinstance(action, LaunchAppAction):
+            self._controller.launch(action.app_name)
+        elif isinstance(action, ExtractAction):
+            self._run_extract(action, history)
         elif isinstance(action, WaitAction):
             time.sleep(min(float(action.seconds), _MAX_WAIT_SECONDS))
         # DoneAction handled in the outer loop
+
+    def _run_extract(self, action: ExtractAction, history: list[dict]) -> None:
+        """Execute a mid-run visual-QA and append the answer to history."""
+        if self._extractor is None:
+            history.append({
+                "role": "user",
+                "content": (
+                    "extract is not available in this run (no VisionExtractor configured). "
+                    "Use Done with the observed answer instead, or proceed without it."
+                ),
+            })
+            return
+        ss = self._controller.screenshot()
+        value, confidence = self._extractor.extract(
+            question=action.question,
+            screenshot=ss,
+            expected_type=action.expected_type or "string",
+            hint=action.hint,
+            task_id="goal-extract",
+        )
+        history.append({
+            "role": "user",
+            "content": (
+                f"Extracted answer for {action.question!r}: "
+                f"value={value!r}, confidence={confidence:.2f}. "
+                "Use this on the next turn; do not re-ask the same question."
+            ),
+        })
+        self._emit({
+            "event": "goal_extracted",
+            "question": action.question,
+            "value": value,
+            "confidence": round(confidence, 3),
+        })
 
 
     def _emit_screenshot(self, image, step_idx: int) -> None:
@@ -315,13 +372,23 @@ def _is_stuck(recent: deque[tuple[str, int, int]], sig: tuple[str, int, int]) ->
 def _describe_action(action: ActionType) -> str:
     if isinstance(action, ClickAction):
         return f"tap ({action.x}, {action.y}) — {action.description}"
+    if isinstance(action, TapTextAction):
+        return f"tap_text {action.text!r}"
     if isinstance(action, SwipeAction):
         return f"swipe ({action.start_x},{action.start_y})→({action.end_x},{action.end_y})"
+    if isinstance(action, LongPressAction):
+        return f"long_press ({action.x},{action.y}) {action.duration}s"
     if isinstance(action, TypeAction):
         return f"type {action.text[:40]!r}"
     if isinstance(action, KeyAction):
         mods = "+".join(action.modifiers or [])
         return f"key {mods + '+' if mods else ''}{action.key}"
+    if isinstance(action, PressHomeAction):
+        return "press_home"
+    if isinstance(action, LaunchAppAction):
+        return f"launch_app {action.app_name!r}"
+    if isinstance(action, ExtractAction):
+        return f"extract {action.question[:60]!r}"
     if isinstance(action, WaitAction):
         return f"wait {action.seconds}s"
     if isinstance(action, DoneAction):

@@ -1,22 +1,21 @@
 """
-Env-var prompt loader.
+Prompt loader: file-first, env-var fallback.
 
-All prompt text is loaded from environment variables at daemon startup — the
-repo never contains prompt content. This keeps the authoring surface, planner
-instructions, and agent system prompts out of any tracked file.
+All prompt bodies live in ``$PILOT_HOME/prompts/<name>.md`` where ``<name>``
+is the prompt key in lowercase (e.g. ``draft_workflow.md``). Each file is
+the raw prompt text — no frontmatter, no markdown stripping. The loader
+falls back to ``PILOT_PROMPT_<NAME>`` env vars so existing .env setups
+keep working.
 
-Conventions
------------
-* Keys are UPPER_SNAKE and prefixed ``PILOT_PROMPT_``.
-* Missing keys raise ``PromptConfigError`` at startup — fail-loud, not silent.
-* A companion ``.env.example`` in the repo root documents the required keys
-  with placeholder values. The real ``.env`` is gitignored.
+File layout intentionally keeps bodies outside the repo: ``PILOT_HOME``
+defaults to ``~/Library/Application Support/Pilot`` which is gitignored
+by virtue of not being in the tree.
 
 Usage
 -----
     from pilot import prompts
     prompts.load_env()             # call once at daemon boot
-    prompts.require_all()          # assert every required key is present
+    prompts.require_all()          # assert every required key resolves
     sys_prompt = prompts.get("AGENT_SYSTEM")
 """
 
@@ -28,13 +27,11 @@ from typing import Iterable
 
 try:
     from dotenv import load_dotenv as _dotenv_load
-except ImportError:  # dotenv is optional at runtime; launchd sets env directly
+except ImportError:
     _dotenv_load = None
 
 _PREFIX = "PILOT_PROMPT_"
 
-# Every prompt name the daemon depends on. Add to this list whenever a new
-# prompt is introduced in code — loader will enforce presence at boot.
 REQUIRED: tuple[str, ...] = (
     "DRAFT_WORKFLOW",
     "CRON_PARSE",
@@ -50,20 +47,11 @@ REQUIRED: tuple[str, ...] = (
 
 
 class PromptConfigError(RuntimeError):
-    """Raised when a required prompt env var is missing or empty."""
+    """Raised when a required prompt is missing or empty."""
 
 
 def load_env(dotenv_path: str | Path | None = None) -> None:
-    """
-    Populate ``os.environ`` from a .env file if present.
-
-    Lookup order:
-        1. Explicit ``dotenv_path`` argument.
-        2. ``$PILOT_HOME/.env`` (runtime install location).
-        3. ``<repo-root>/.env`` walked up from this file.
-
-    Safe to call multiple times. Never overwrites existing process env.
-    """
+    """Populate ``os.environ`` from a .env file if present."""
     if _dotenv_load is None:
         return
 
@@ -75,7 +63,6 @@ def load_env(dotenv_path: str | Path | None = None) -> None:
     if pilot_home:
         candidates.append(Path(pilot_home).expanduser() / ".env")
 
-    # Walk up from this file looking for a repo-root .env.
     here = Path(__file__).resolve()
     for parent in [here.parent, *here.parents]:
         candidates.append(parent / ".env")
@@ -90,15 +77,48 @@ def load_env(dotenv_path: str | Path | None = None) -> None:
             _dotenv_load(dotenv_path=path, override=False)
 
 
+def _prompts_dir() -> Path:
+    """Resolve the prompts directory without creating it (avoids side effects in tests)."""
+    home_override = os.environ.get("PILOT_HOME")
+    if home_override:
+        return Path(home_override).expanduser() / "prompts"
+    return Path("~/Library/Application Support/Pilot/prompts").expanduser()
+
+
+def _file_for(name: str) -> Path:
+    stem = name.removeprefix(_PREFIX).lower()
+    return _prompts_dir() / f"{stem}.md"
+
+
+def _read_file(name: str) -> str:
+    path = _file_for(name)
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _read_env(name: str) -> str:
+    key = name if name.startswith(_PREFIX) else _PREFIX + name
+    return os.environ.get(key, "").strip()
+
+
+def _resolve(name: str) -> str:
+    """File wins over env — makes iteration easy without restarting the daemon."""
+    return _read_file(name) or _read_env(name)
+
+
 def get(name: str) -> str:
     """Return the prompt text for ``name`` (without the ``PILOT_PROMPT_`` prefix)."""
-    key = name if name.startswith(_PREFIX) else _PREFIX + name
-    value = os.environ.get(key, "").strip()
+    value = _resolve(name)
     if not value:
+        stem = name.removeprefix(_PREFIX).lower()
         raise PromptConfigError(
-            f"Prompt env var {key!r} is missing or empty. "
-            "Copy .env.example to .env in the repo root and populate it, "
-            "or set the variable in your launchd plist."
+            f"Prompt {name!r} is missing. "
+            f"Create {_prompts_dir() / (stem + '.md')!s} "
+            f"or set {_PREFIX}{stem.upper()} in your .env."
         )
     return value
 
@@ -107,14 +127,15 @@ def require_all(names: Iterable[str] = REQUIRED) -> None:
     """Assert every prompt in ``names`` resolves to non-empty text."""
     missing: list[str] = []
     for n in names:
-        key = n if n.startswith(_PREFIX) else _PREFIX + n
-        if not os.environ.get(key, "").strip():
-            missing.append(key)
+        if not _resolve(n):
+            missing.append(n)
     if missing:
         raise PromptConfigError(
-            "Missing required prompt env vars: "
+            "Missing required prompts: "
             + ", ".join(sorted(missing))
-            + ". See .env.example."
+            + f". Add files under {_prompts_dir()!s} or set "
+            + ", ".join(f"{_PREFIX}{m}" for m in sorted(missing))
+            + " in .env."
         )
 
 
@@ -122,6 +143,5 @@ def snapshot() -> dict[str, int]:
     """Return {prompt_name: length} — safe to log without leaking content."""
     out: dict[str, int] = {}
     for n in REQUIRED:
-        key = _PREFIX + n
-        out[n] = len(os.environ.get(key, ""))
+        out[n] = len(_resolve(n))
     return out

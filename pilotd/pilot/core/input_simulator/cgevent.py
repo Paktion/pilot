@@ -148,6 +148,16 @@ class CGEventInputSimulator:
     def _post(self, event: Any) -> None:
         _post_event(event, self._get_pid())
 
+    def _post_hid(self, event: Any) -> None:
+        """Post *event* to the system HID event tap.
+
+        Keyboard events only translate into iOS input when iPhone Mirroring
+        sees them through the same pipe a physical keyboard would use; the
+        PID-targeted path delivers to Mirroring's local queue but drops on
+        the floor before reaching iOS. Clicks stay on the PID path.
+        """
+        CGEventPost(kCGHIDEventTap, event)
+
     def _make_mouse_event(
         self, event_type: int, x: int, y: int, button: int = kCGMouseButtonLeft
     ) -> Any:
@@ -358,9 +368,9 @@ class CGEventInputSimulator:
 
         try:
             if text.isascii():
-                type_ascii_via_cgevent(text, interval, self._post)
+                type_ascii_via_cgevent(text, interval, self._post_hid)
             else:
-                type_via_clipboard_cgevent(text, self._post)
+                type_via_clipboard_cgevent(text, self._post_hid)
         except InputError:
             raise
         except Exception as exc:
@@ -423,22 +433,22 @@ class CGEventInputSimulator:
         try:
             # Press modifier keys down
             for mod_kc in mod_keycodes:
-                self._post(self._make_key_event(mod_kc, True))
+                self._post_hid(self._make_key_event(mod_kc, True))
 
             # Press the main key
             down = self._make_key_event(keycode, True)
             if flags:
                 CGEventSetFlags(down, flags)
-            self._post(down)
+            self._post_hid(down)
 
             up = self._make_key_event(keycode, False)
             if flags:
                 CGEventSetFlags(up, flags)
-            self._post(up)
+            self._post_hid(up)
 
             # Release modifier keys (reverse order)
             for mod_kc in reversed(mod_keycodes):
-                self._post(self._make_key_event(mod_kc, False))
+                self._post_hid(self._make_key_event(mod_kc, False))
         except InputError:
             raise
         except Exception as exc:

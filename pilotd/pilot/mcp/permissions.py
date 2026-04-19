@@ -35,6 +35,9 @@ _DEFAULT_ALLOW: tuple[str, ...] = (
     "get_memory",
     "diagnose_failure",
     "draft_workflow",
+    # Read-only device tools are safe to expose — gestures still need opt-in.
+    "device_screenshot",
+    "device_extract",
 )
 
 

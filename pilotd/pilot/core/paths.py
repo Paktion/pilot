@@ -58,6 +58,12 @@ def workflows_dir() -> Path:
     return d
 
 
+def prompts_dir() -> Path:
+    d = pilot_home() / "prompts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def screenshots_dir() -> Path:
     d = pilot_home() / "screenshots"
     d.mkdir(parents=True, exist_ok=True)

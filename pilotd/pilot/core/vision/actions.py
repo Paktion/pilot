@@ -67,8 +67,72 @@ class DoneAction:
     step_complete: bool = False
 
 
+@dataclass
+class LaunchAppAction:
+    """Open an app by name (Spotlight)."""
+
+    app_name: str
+    type: str = "launch_app"
+    step_complete: bool = False
+
+
+@dataclass
+class PressHomeAction:
+    """Return to the iOS home screen."""
+
+    type: str = "press_home"
+    step_complete: bool = False
+
+
+@dataclass
+class LongPressAction:
+    """Press-and-hold at a coordinate — context menus, drag handles."""
+
+    x: int
+    y: int
+    duration: float = 1.0
+    description: str = ""
+    type: str = "long_press"
+    step_complete: bool = False
+
+
+@dataclass
+class TapTextAction:
+    """Tap the best on-screen match for a text label.
+
+    Delegates to the controller's vision-backed find-then-click path, which is
+    more robust than raw pixel coordinates when the UI shifts between runs.
+    """
+
+    text: str
+    prefer: str | None = None
+    type: str = "tap_text"
+    step_complete: bool = False
+
+
+@dataclass
+class ExtractAction:
+    """Ask a visual-QA question about the current screen and stash the answer."""
+
+    question: str
+    expected_type: str = "string"
+    hint: str | None = None
+    type: str = "extract"
+    step_complete: bool = False
+
+
 ActionType = Union[
-    ClickAction, TypeAction, SwipeAction, KeyAction, WaitAction, DoneAction
+    ClickAction,
+    TypeAction,
+    SwipeAction,
+    KeyAction,
+    WaitAction,
+    DoneAction,
+    LaunchAppAction,
+    PressHomeAction,
+    LongPressAction,
+    TapTextAction,
+    ExtractAction,
 ]
 
 
@@ -82,12 +146,7 @@ class AgentResponse:
 
 
 class LowConfidenceError(Exception):
-    """Raised when confidence falls below the configured threshold.
-
-    The caller can inspect ``self.response`` to see the full ``AgentResponse``
-    and decide how to proceed — ask for clarification, retry with a modified
-    prompt, or execute the action anyway.
-    """
+    """Raised when confidence falls below the configured threshold."""
 
     def __init__(self, message: str, response: AgentResponse) -> None:
         super().__init__(message)
@@ -101,16 +160,16 @@ _ACTION_CONSTRUCTORS: dict[str, type] = {
     "key": KeyAction,
     "wait": WaitAction,
     "done": DoneAction,
+    "launch_app": LaunchAppAction,
+    "press_home": PressHomeAction,
+    "long_press": LongPressAction,
+    "tap_text": TapTextAction,
+    "extract": ExtractAction,
 }
 
 
 def parse_action(data: dict) -> ActionType:
-    """Instantiate the correct action dataclass from a raw dict.
-
-    The ``type`` field selects the class; remaining keys are forwarded as
-    kwargs. Unknown keys are silently dropped so the agent can include
-    extra commentary without breaking parsing.
-    """
+    """Instantiate the correct action dataclass from a raw dict."""
     action_type = data.get("type")
     if action_type not in _ACTION_CONSTRUCTORS:
         raise ValueError(

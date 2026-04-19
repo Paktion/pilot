@@ -79,9 +79,16 @@ class VisionAgent:
         screenshot: Image.Image,
         task: str,
         history: list[dict] | None = None,
+        tools: list[dict] | None = None,
     ) -> AgentResponse:
+        """
+        ``tools`` is an optional restricted Anthropic tool-list. Callers doing
+        a locate-then-click pass (``tap_text``, ``wait_for``) should restrict
+        to the coordinate-returning subset so the model can't answer with
+        semantic tools like tap_text/launch_app/extract.
+        """
         if self.use_tool_mode:
-            return self._analyze_tool_use(screenshot, task, history)
+            return self._analyze_tool_use(screenshot, task, history, tools)
         return self._analyze_json(screenshot, task, history)
 
     def _analyze_json(
@@ -102,10 +109,11 @@ class VisionAgent:
         screenshot: Image.Image,
         task: str,
         history: list[dict] | None,
+        tools: list[dict] | None = None,
     ) -> AgentResponse:
         messages = self._build_messages(screenshot, task, history)
         system_prompt = self._system_prompt_with_dims(screenshot)
-        response = self._call_api_tool_use(system_prompt, messages)
+        response = self._call_api_tool_use(system_prompt, messages, tools)
         result = self._parse_tool_use_response(response)
         self._check_confidence(result)
         return result
@@ -204,9 +212,13 @@ class VisionAgent:
         raise RuntimeError("Exhausted all API retry attempts")
 
     def _call_api_tool_use(
-        self, system_prompt: str, messages: list[dict]
+        self,
+        system_prompt: str,
+        messages: list[dict],
+        tools: list[dict] | None = None,
     ) -> anthropic.types.Message:
         delay = self.retry_delay
+        active_tools = tools if tools is not None else TOOL_DEFINITIONS
         for attempt in range(1, self.max_retries + 1):
             try:
                 response = self.client.messages.create(
@@ -214,7 +226,7 @@ class VisionAgent:
                     max_tokens=self.max_tokens,
                     system=system_prompt,
                     messages=messages,
-                    tools=TOOL_DEFINITIONS,
+                    tools=active_tools,
                     tool_choice={"type": "any"},
                 )
                 self._record_usage(response)

@@ -191,6 +191,56 @@ class _Container:
                 existing = self._extractor
             return existing
 
+    def device_controller(self):
+        """Singleton AgentController for direct device RPCs (device.* / MCP).
+
+        Unlike the one built per-run in workflow_handlers, this controller has
+        no event emitter, no screenshot streamer, and no hint lookup — it's a
+        thin shim for testing individual gestures.
+        """
+        with self._lock:
+            existing = getattr(self, "_device_controller", None)
+            if existing is not None:
+                return existing
+            from pilot.core.controller import AgentController
+            from pilot.core.input_simulator import CGEventInputSimulator, InputSimulator
+            from pilot.core.vision import VisionAgent
+            from pilot.core.window_capture import MirroringWindowManager
+
+            window = MirroringWindowManager()
+            # Locate the Mirroring window now so the first RPC doesn't hit
+            # the lazy-init error path. The workflow path sidesteps this
+            # because its first input call runs refresh_bounds(); direct
+            # device.screenshot() has no such side effect.
+            from pilot.core.window_capture import MirroringWindowError
+            try:
+                window.find_window()
+            except MirroringWindowError as exc:
+                log.warning("device controller: %s", exc)
+            cfg = self.config()
+            use_cgevent = bool(cfg.get("use_cgevent", True))
+            if use_cgevent:
+                try:
+                    inputs = CGEventInputSimulator(window_manager=window)
+                except Exception as exc:
+                    log.warning(
+                        "device controller: CGEvent unavailable (%s) — using pyautogui",
+                        exc,
+                    )
+                    inputs = InputSimulator(window_manager=window)
+            else:
+                inputs = InputSimulator(window_manager=window)
+            vision = VisionAgent(model=cfg.get("model"))
+            self._device_controller = AgentController(
+                vision=vision, inputs=inputs, window=window,
+            )
+            return self._device_controller
+
+    def reset_device_controller(self) -> None:
+        """Drop the cached device controller (e.g. after Mirroring reconnect)."""
+        with self._lock:
+            self._device_controller = None
+
     def replanner(self):
         """Claude-backed replanner for ``on_failure: replan`` step modifier."""
         with self._lock:

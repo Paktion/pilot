@@ -27,6 +27,7 @@ from PIL import Image
 
 from pilot.core.input_simulator import InputSimulator
 from pilot.core.vision import ClickAction, DoneAction, VisionAgent, WaitAction
+from pilot.core.vision.tools import LOCATE_TOOL_DEFINITIONS
 from pilot.core.window_capture import MirroringWindowManager
 
 
@@ -198,7 +199,9 @@ class AgentController:
                     "keywords": keywords,
                     "scrolls": scrolls_applied,
                 })
-                response = self._vision.analyze_screen(ss, task=task_prompt)
+                response = self._vision.analyze_screen(
+                    ss, task=task_prompt, tools=LOCATE_TOOL_DEFINITIONS,
+                )
             except Exception as exc:
                 _raise_if_auth(exc)
                 vision_errors += 1
@@ -319,7 +322,9 @@ class AgentController:
                 "scrolls": scrolls,
             })
             try:
-                response = self._vision.analyze_screen(ss, task=task_prompt)
+                response = self._vision.analyze_screen(
+                    ss, task=task_prompt, tools=LOCATE_TOOL_DEFINITIONS,
+                )
             except Exception as exc:
                 _raise_if_auth(exc)
                 raise
@@ -349,6 +354,14 @@ class AgentController:
 
     def tap_xy(self, x: int, y: int) -> None:
         self._inputs.click(x, y)
+
+    def long_press(self, x: int, y: int, duration: float = 1.0) -> None:
+        """Press and hold at phone-screen-relative coords."""
+        self._inputs.long_press(x, y, duration=duration)
+
+    def press_home(self) -> None:
+        """Return to the iPhone home screen."""
+        self._inputs.home()
 
     def _to_phone_points(
         self, px: float, py: float, screenshot: Image.Image

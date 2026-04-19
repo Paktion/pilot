@@ -35,6 +35,7 @@ Handler = Callable[[dict[str, Any], Emit], Awaitable[None]]
 def _load_handlers() -> dict[str, Handler]:
     """Collect ``{method: handler}`` from every handlers submodule."""
     from pilot.handlers import (
+        device_handlers,
         health_handlers,
         memory_handlers,
         run_handlers,
@@ -46,6 +47,7 @@ def _load_handlers() -> dict[str, Handler]:
 
     registry: dict[str, Handler] = {}
     modules = {
+        "device": device_handlers,
         "health": health_handlers,
         "memory": memory_handlers,
         "run": run_handlers,

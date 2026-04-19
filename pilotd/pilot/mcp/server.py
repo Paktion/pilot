@@ -5,7 +5,7 @@ Exposes workflow-level tools to MCP clients (Claude Code, Cursor, Codex).
 Tools are gated by ``permissions.py``; hidden tools are literally absent
 from ``tools/list``, so the model cannot call what it can't see.
 
-Tool surface (9):
+Tool surface:
     read-only (default ALLOW):
         check_health         — daemon + prompt status
         list_workflows       — array of saved workflows
@@ -14,11 +14,22 @@ Tool surface (9):
         get_memory           — vector top-k over semantic memory
         diagnose_failure     — Haiku-backed post-mortem on a failed run
         draft_workflow       — NL description → YAML (no write)
+        device_screenshot    — capture current iPhone screen (JPEG)
+        device_extract       — vision-QA against the current screen
     mutating (default DENY — user must flip in permissions.json):
         save_workflow        — persist a YAML draft
         run_workflow         — trigger a workflow by name
         schedule_workflow    — register a cron schedule
         abort_run            — request cooperative abort of a running workflow
+        device_tap           — raw coordinate tap
+        device_tap_text      — vision-backed tap by label
+        device_swipe         — directional swipe
+        device_long_press    — press-and-hold
+        device_type_text     — type into focused field
+        device_press_key     — hardware key (+ modifiers)
+        device_press_home    — return to home screen
+        device_launch_app    — open app via Spotlight
+        device_reset         — drop cached device controller
 """
 
 from __future__ import annotations
@@ -179,6 +190,84 @@ def _abort_run(args, client):
     return {"aborting": r.get("aborting", True)}
 
 
+# --- device.* thin adapters ------------------------------------------------
+
+
+def _device_tap(args, client):
+    r = _unwrap(client.call("device.tap", {"x": args["x"], "y": args["y"]}))
+    return {"status": r.get("status")}
+
+
+def _device_tap_text(args, client):
+    r = _unwrap(client.call("device.tap_text", {
+        "text": args["text"],
+        "prefer": args.get("prefer"),
+    }))
+    return {"status": r.get("status")}
+
+
+def _device_swipe(args, client):
+    payload = {"direction": args["direction"]}
+    if args.get("distance") is not None:
+        payload["distance"] = args["distance"]
+    r = _unwrap(client.call("device.swipe", payload))
+    return {"status": r.get("status")}
+
+
+def _device_long_press(args, client):
+    r = _unwrap(client.call("device.long_press", {
+        "x": args["x"], "y": args["y"],
+        "duration": args.get("duration", 1.0),
+    }))
+    return {"status": r.get("status")}
+
+
+def _device_type_text(args, client):
+    r = _unwrap(client.call("device.type_text", {"text": args["text"]}))
+    return {"status": r.get("status"), "length": r.get("length")}
+
+
+def _device_press_key(args, client):
+    payload: dict[str, Any] = {"key": args["key"]}
+    if args.get("modifiers"):
+        payload["modifiers"] = args["modifiers"]
+    r = _unwrap(client.call("device.press_key", payload))
+    return {"status": r.get("status")}
+
+
+def _device_press_home(_args, client):
+    r = _unwrap(client.call("device.press_home", {}))
+    return {"status": r.get("status")}
+
+
+def _device_launch_app(args, client):
+    r = _unwrap(client.call("device.launch_app", {"app_name": args["app_name"]}))
+    return {"status": r.get("status")}
+
+
+def _device_screenshot(_args, client):
+    r = _unwrap(client.call("device.screenshot", {}))
+    return {
+        "image_b64": r.get("image_b64"),
+        "width": r.get("width"),
+        "height": r.get("height"),
+    }
+
+
+def _device_extract(args, client):
+    r = _unwrap(client.call("device.extract", {
+        "question": args["question"],
+        "type": args.get("expected_type", "string"),
+        "hint": args.get("hint"),
+    }))
+    return {"answer": r.get("answer"), "confidence": r.get("confidence")}
+
+
+def _device_reset(_args, client):
+    r = _unwrap(client.call("device.reset", {}))
+    return {"status": r.get("status")}
+
+
 # ---------------------------------------------------------------------------
 # Tool registry
 # ---------------------------------------------------------------------------
@@ -311,6 +400,151 @@ _TOOLS: dict[str, ToolSpec] = {
             "required": ["run_id"],
         },
         handler=_abort_run,
+        mutating=True,
+    ),
+    "device_tap": ToolSpec(
+        name="device_tap",
+        description=(
+            "Tap at a specific pixel coordinate on the iPhone. Raw input — "
+            "no confirmation, no vision. For testing/diagnostics."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+            },
+            "required": ["x", "y"],
+        },
+        handler=_device_tap,
+        mutating=True,
+    ),
+    "device_tap_text": ToolSpec(
+        name="device_tap_text",
+        description="Find the visible label on screen via vision and tap it.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "prefer": {"type": "string", "enum": ["first", "last"]},
+            },
+            "required": ["text"],
+        },
+        handler=_device_tap_text,
+        mutating=True,
+    ),
+    "device_swipe": ToolSpec(
+        name="device_swipe",
+        description="Swipe the iPhone in a direction (up/down/left/right).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "direction": {
+                    "type": "string",
+                    "enum": ["up", "down", "left", "right"],
+                },
+                "distance": {"type": "integer"},
+            },
+            "required": ["direction"],
+        },
+        handler=_device_swipe,
+        mutating=True,
+    ),
+    "device_long_press": ToolSpec(
+        name="device_long_press",
+        description="Press and hold at a pixel coordinate for `duration` seconds.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+                "duration": {"type": "number", "default": 1.0},
+            },
+            "required": ["x", "y"],
+        },
+        handler=_device_long_press,
+        mutating=True,
+    ),
+    "device_type_text": ToolSpec(
+        name="device_type_text",
+        description="Type text into whatever field is currently focused on the iPhone.",
+        input_schema={
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+        handler=_device_type_text,
+        mutating=True,
+    ),
+    "device_press_key": ToolSpec(
+        name="device_press_key",
+        description="Press a hardware key (enter, escape, backspace, tab, etc.).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "key": {"type": "string"},
+                "modifiers": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["key"],
+        },
+        handler=_device_press_key,
+        mutating=True,
+    ),
+    "device_press_home": ToolSpec(
+        name="device_press_home",
+        description="Return to the iOS home screen (Cmd+1 via iPhone Mirroring).",
+        input_schema={"type": "object", "properties": {}, "required": []},
+        handler=_device_press_home,
+        mutating=True,
+    ),
+    "device_launch_app": ToolSpec(
+        name="device_launch_app",
+        description="Open an app by name via Spotlight.",
+        input_schema={
+            "type": "object",
+            "properties": {"app_name": {"type": "string"}},
+            "required": ["app_name"],
+        },
+        handler=_device_launch_app,
+        mutating=True,
+    ),
+    "device_screenshot": ToolSpec(
+        name="device_screenshot",
+        description="Capture the current iPhone screen; returns a base64 JPEG.",
+        input_schema={"type": "object", "properties": {}, "required": []},
+        handler=_device_screenshot,
+        mutating=False,
+    ),
+    "device_extract": ToolSpec(
+        name="device_extract",
+        description=(
+            "Ask a visual-QA question about the current iPhone screen. "
+            "Returns {answer, confidence}."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "expected_type": {
+                    "type": "string",
+                    "enum": ["int", "float", "string", "bool"],
+                    "default": "string",
+                },
+                "hint": {"type": "string"},
+            },
+            "required": ["question"],
+        },
+        handler=_device_extract,
+        mutating=False,
+    ),
+    "device_reset": ToolSpec(
+        name="device_reset",
+        description=(
+            "Drop the cached device controller. Use after Mirroring reconnects "
+            "or if gestures stop registering."
+        ),
+        input_schema={"type": "object", "properties": {}, "required": []},
+        handler=_device_reset,
         mutating=True,
     ),
 }
