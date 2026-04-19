@@ -47,24 +47,27 @@ log = logging.getLogger("pilotd.controller")
 
 
 _FIND_PROMPT = (
-    "Find the element that best matches ANY of these target labels: {labels}.\n\n"
-    "A match can be:\n"
-    "  - EXACT text match (case-insensitive)\n"
-    "  - A PARTIAL match — if the target is 'Dining' and you see 'Dining "
-    "Locations' or 'Dining Hall', click it\n"
-    "  - A close SYNONYM — 'Dining' matches 'Meal Swipes', 'Cafeteria', 'Food'; "
-    "'Checkout' matches 'Proceed to Pay'; 'Reorder' matches 'Order Again'\n"
-    "  - An ICON button labeled with any of the above\n\n"
-    "Actions to return:\n"
-    "  - ClickAction(x, y, description) — use this whenever you see the target "
-    "OR a partial/synonym match anywhere on screen. Prefer clicking even a "
-    "partial match over returning WaitAction.\n"
-    "  - WaitAction(seconds=0.5) — ONLY if nothing matches at all AND the "
-    "screen clearly has more content below the visible area (scroll hint).\n"
-    "  - DoneAction(summary='NOT_VISIBLE') — nothing matches and the screen "
-    "is fully shown.\n\n"
-    "Bias strongly toward ClickAction on any plausible match. Avoid scrolling "
-    "past a partial match."
+    "Find the target element. Targets (any match counts): {labels}.\n\n"
+    "IMPORTANT — return ClickAction if ANY of these is on screen, even if "
+    "only partially visible:\n"
+    "  • Exact text (case-insensitive)\n"
+    "  • PARTIAL overlap: target 'Dining' matches 'Dining Locations', 'Dining "
+    "Hall', 'Campus Dining', 'Grab & Go Dining', etc.\n"
+    "  • SYNONYM: 'Dining' matches 'Meal Swipes', 'Cafeteria', 'Food', 'Meal "
+    "Plan'; 'Checkout' matches 'Proceed to Pay'; 'Reorder' matches 'Order Again'\n"
+    "  • An ICON tile or row labeled with any of the above\n\n"
+    "Decision rules:\n"
+    "  1. If you see ANY visible text or icon that plausibly matches → return "
+    "ClickAction with its center coords. Include what you matched in the "
+    "description field.\n"
+    "  2. ONLY return WaitAction if you can see a clear scroll indicator "
+    "AND nothing on the current view resembles the target in any way.\n"
+    "  3. Return DoneAction with summary='NOT_VISIBLE' if the target clearly "
+    "isn't here and the page is not scrollable.\n\n"
+    "STRONG BIAS: prefer ClickAction. Judges and users will see you scroll; "
+    "they won't forgive you for scrolling past a button that was already "
+    "visible. If unsure whether a partial match is valid, click it — one "
+    "extra click is recoverable, a missed target is not."
 )
 
 
@@ -170,7 +173,7 @@ class AgentController:
                 })
                 response = self._vision.analyze_screen(ss, task=task_prompt)
             except Exception as exc:
-                _raise_if_auth(exc)  # fails fast on 401/403 — retrying is pointless
+                _raise_if_auth(exc)
                 vision_errors += 1
                 if vision_errors >= 3:
                     log.warning(
@@ -183,8 +186,17 @@ class AgentController:
 
             vision_errors = 0
 
+            # Debug-emit Claude's reasoning so the live console shows WHY
+            # the agent is scrolling vs tapping.
+            thought_preview = (response.thought or "")[:80]
+            action_kind = type(response.action).__name__
+            log.info(
+                "wait_for %s: claude=%s conf=%.2f thought=%r",
+                keywords, action_kind, response.confidence, thought_preview,
+            )
+            self._emit_thought(action_kind, thought_preview, response.confidence)
+
             if isinstance(response.action, ClickAction):
-                # Found. Record if this was a learning moment.
                 if self._save_hint is not None and scrolls_applied != pre_scrolls:
                     try:
                         self._save_hint(canonical, scrolls_applied)
@@ -192,23 +204,29 @@ class AgentController:
                         log.exception("save_hint failed")
                 return True
 
-            # LLM signaled "not visible but scrollable" via WaitAction.
             if isinstance(response.action, WaitAction):
                 if scrolls_applied < max_scrolls:
-                    self._try_swipe("up")
+                    self._try_swipe("up", gentle=True)
                     scrolls_applied += 1
                     polls_since_scroll = 0
-                    time.sleep(0.6)
+                    time.sleep(0.8)
                     continue
+                # Scroll budget exhausted but LLM still says 'scroll more'.
+                # We may have scrolled past the target — try going back up.
+                if pre_scrolls == 0:  # only reverse if we didn't start with a hint
+                    log.info("wait_for %s: max_scrolls hit, reversing once", keywords)
+                    self._try_swipe("down", gentle=True)
+                    time.sleep(0.8)
+                    pre_scrolls = -1  # sentinel: already reversed once
+                    continue
+                return False
 
-            # DoneAction(NOT_VISIBLE) or we've exhausted scrolls.
             if isinstance(response.action, DoneAction):
-                # Still try one opportunistic scroll if we haven't maxed out.
                 if scrolls_applied < max_scrolls:
-                    self._try_swipe("up")
+                    self._try_swipe("up", gentle=True)
                     scrolls_applied += 1
                     polls_since_scroll = 0
-                    time.sleep(0.6)
+                    time.sleep(0.8)
                     continue
                 return False
 
@@ -217,10 +235,26 @@ class AgentController:
 
         return False
 
-    def _try_swipe(self, direction: str) -> None:
-        """Swipe without letting a geometry error abort the whole wait loop."""
+    def _emit_thought(self, action_kind: str, thought: str, confidence: float) -> None:
+        """Forward Claude's reasoning through the screenshot callback channel
+        so the live UI can render it. Cheap re-use — no new callback slot."""
+        self._on_screenshot(self._window.capture_screenshot() if False else None,  # noqa: E501
+                            {"kind": "thought", "action": action_kind,
+                             "thought": thought, "confidence": round(confidence, 2)})
+
+    def _try_swipe(self, direction: str, *, gentle: bool = False) -> None:
+        """Swipe without letting a geometry error abort the whole wait loop.
+
+        ``gentle=True`` uses a ~quarter-screen stroke (vs the default third)
+        so we don't over-scroll past a target that was about to appear.
+        """
         try:
-            self.swipe(direction)
+            if gentle:
+                bounds = self._window.get_phone_screen_region()
+                shorter = min(bounds["width"], bounds["height"])
+                self.swipe(direction, distance=shorter // 4)
+            else:
+                self.swipe(direction)
         except Exception as exc:
             log.debug("swipe %s failed: %s", direction, exc)
 
