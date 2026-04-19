@@ -34,6 +34,26 @@ class AnthropicAuthError(RuntimeError):
     """The Anthropic API rejected the key. Retrying won't help — abort fast."""
 
 
+class MirroringLockedError(RuntimeError):
+    """iPhone Mirroring is showing its lock/auth screen, not the iOS UI."""
+
+
+_LOCKED_SIGNALS = (
+    "mirroring is locked",
+    "iphone mirroring is locked",
+    "iphone is locked",
+    "unlock your iphone",
+    "face id",
+    "authenticate",
+    "passcode",
+)
+
+
+def _looks_locked(thought: str) -> bool:
+    lowered = thought.lower()
+    return any(s in lowered for s in _LOCKED_SIGNALS)
+
+
 def _raise_if_auth(exc: Exception) -> None:
     """If ``exc`` is a 401/403 from Anthropic, convert to a friendly auth error."""
     if isinstance(exc, anthropic.APIStatusError) and exc.status_code in (401, 403):
@@ -188,8 +208,6 @@ class AgentController:
 
             vision_errors = 0
 
-            # Debug-emit Claude's reasoning so the live console shows WHY
-            # the agent is scrolling vs tapping.
             thought_preview = (response.thought or "")[:80]
             action_kind = type(response.action).__name__
             log.info(
@@ -197,6 +215,15 @@ class AgentController:
                 keywords, action_kind, response.confidence, thought_preview,
             )
             self._emit_thought(action_kind, thought_preview, response.confidence)
+
+            # Fail-fast: if Claude tells us the Mirroring window is on its
+            # lock screen, no amount of scrolling fixes it.
+            if _looks_locked(response.thought or ""):
+                raise MirroringLockedError(
+                    "iPhone Mirroring is showing its lock/authentication screen. "
+                    "Pick up your iPhone, unlock it with Face ID or your passcode, "
+                    "and wait for the Mirroring window to reconnect to the iOS UI."
+                )
 
             if isinstance(response.action, ClickAction):
                 if self._save_hint is not None and scrolls_applied != pre_scrolls:
