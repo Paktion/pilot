@@ -26,6 +26,7 @@
 		97F37C5429573FF690866414 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51B576C5E0B29E89A3750700 /* AppState.swift */; };
 		9803714AC60FEA574103EB80 /* AuthoringView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B1A0AFBF5D27CB5AACF590D /* AuthoringView.swift */; };
 		988BB73F9580AFFEFFF384D3 /* Workflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4D7442BC836E7D0D3A036B1 /* Workflow.swift */; };
+		99CF176EADBA84AA855AE985 /* check_osu_dining_dollars.skill.yaml in Resources */ = {isa = PBXBuildFile; fileRef = 16CB0D806040B1A4A20DC0D6 /* check_osu_dining_dollars.skill.yaml */; };
 		A2C4EE92212BF5D389B3E4E4 /* StepCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BDF117B9A20C56205035CF5 /* StepCardView.swift */; };
 		A7F57B40B04AE6B939FA4527 /* Run.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFF5B35E2E273E2D1DB80BFB /* Run.swift */; };
 		AF553BF0DE56144ABE14912F /* DaemonLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C382DC06D8F2B24F72D7FEA /* DaemonLifecycle.swift */; };
@@ -42,6 +43,7 @@
 		033B7B0DFB321D06AF6959AE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		09BECB08EDDA39521263B5B1 /* check_weather.skill.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = check_weather.skill.yaml; sourceTree = "<group>"; };
 		12A73BF60281FCD11EBBF02A /* reorder_grubhub.skill.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = reorder_grubhub.skill.yaml; sourceTree = "<group>"; };
+		16CB0D806040B1A4A20DC0D6 /* check_osu_dining_dollars.skill.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = check_osu_dining_dollars.skill.yaml; sourceTree = "<group>"; };
 		170D220593C4182DAE24883A /* ScheduleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleView.swift; sourceTree = "<group>"; };
 		1C382DC06D8F2B24F72D7FEA /* DaemonLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonLifecycle.swift; sourceTree = "<group>"; };
 		26121D1119D100981845FBA3 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
@@ -76,6 +78,7 @@
 		2C035DA3177A42AD935A1A6A /* templates */ = {
 			isa = PBXGroup;
 			children = (
+				16CB0D806040B1A4A20DC0D6 /* check_osu_dining_dollars.skill.yaml */,
 				C37D1DE888FEE51742418469 /* check_osu_swipes.skill.yaml */,
 				09BECB08EDDA39521263B5B1 /* check_weather.skill.yaml */,
 				BCF4CC2B69A72BBBC0A72AEC /* pay_spectrum_bill.skill.yaml */,
@@ -234,6 +237,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7C9B07D95B79E83FAE90576F /* Assets.xcassets in Resources */,
+				99CF176EADBA84AA855AE985 /* check_osu_dining_dollars.skill.yaml in Resources */,
 				C6CFE47BFADF86145A6F09F3 /* check_osu_swipes.skill.yaml in Resources */,
 				56B7AAD6854EBB5187AE60BB /* check_weather.skill.yaml in Resources */,
 				73CD86FD48E0413CA54C954C /* pay_spectrum_bill.skill.yaml in Resources */,

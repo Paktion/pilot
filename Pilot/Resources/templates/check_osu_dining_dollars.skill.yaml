@@ -1,0 +1,29 @@
+version: 1
+name: Check OSU Dining Dollars
+app: Ohio State
+tags: [campus, weekly]
+description: Reads the Dining Dollars balance from the For You page's BuckID section.
+
+steps:
+  - launch: Ohio State
+  - goal: |
+      Find the Dining Dollars balance. Follow this path exactly:
+        1. Tap "For You" in the BOTTOM navigation bar (leftmost tab in
+           the tab strip at the bottom — not the top-right Campus button).
+        2. On the For You page, scroll DOWN until the BuckID section
+           is visible (labeled "BuckID", "BuckID Account", or a card
+           with balance rows).
+        3. Find the "Dining Dollars" row — the value is a dollar
+           amount formatted like $12.34.
+        4. Call Done with a summary like "Dining Dollars: $12.34" so
+           the amount is captured. Extract ONLY the dollar value, NOT
+           the meal-swipe count or BuckID Cash.
+
+      Do NOT tap anything outside this path. Do NOT tap payment,
+      purchase, or confirm buttons.
+    budget: 12
+    capture_as: dining_dollars
+  - remember:
+      key: last_dining_dollars
+      value: "{{ dining_dollars }}"
+  - done: "Dining Dollars: {{ dining_dollars }}"
