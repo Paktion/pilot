@@ -162,10 +162,21 @@ class GoalAgent:
                     "summary": summary,
                     "captured": captured,
                 })
-                if summary.strip().upper() == "BLOCKED_BY_AUTH":
+                upper_summary = summary.strip().upper()
+                if upper_summary.startswith("BLOCKED_BY_AUTH"):
                     return GoalResult(
                         status="failed",
                         summary="blocked by auth/lock screen",
+                        steps_taken=steps_taken,
+                        history=history,
+                    )
+                if upper_summary.startswith("NOT_REACHABLE"):
+                    # The agent explicitly declared the path unreachable.
+                    # That's a failure, not a success — don't let it poison
+                    # downstream steps with a garbage captured value.
+                    return GoalResult(
+                        status="failed",
+                        summary=summary,
                         steps_taken=steps_taken,
                         history=history,
                     )

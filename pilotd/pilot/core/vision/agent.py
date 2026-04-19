@@ -112,7 +112,18 @@ class VisionAgent:
 
     def _system_prompt_with_dims(self, screenshot: Image.Image) -> str:
         base = prompts.get("AGENT_SYSTEM")
+        # Report the ACTUAL dimensions Claude will see after client-side
+        # resize, not the original capture. Lying about the size shifts
+        # tap coordinates by the resize ratio — that bug cost us hours.
         width, height = screenshot.size
+        if max(width, height) > _MAX_IMAGE_DIMENSION:
+            if width >= height:
+                new_w = _MAX_IMAGE_DIMENSION
+                new_h = int(height * _MAX_IMAGE_DIMENSION / width)
+            else:
+                new_h = _MAX_IMAGE_DIMENSION
+                new_w = int(width * _MAX_IMAGE_DIMENSION / height)
+            width, height = new_w, new_h
         return base + (
             f"\n\nThe current screenshot is {width}x{height} pixels. "
             f"All coordinates must be within x in [0, {width - 1}], "
