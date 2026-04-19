@@ -47,15 +47,24 @@ log = logging.getLogger("pilotd.controller")
 
 
 _FIND_PROMPT = (
-    "Find the element that best matches ANY of these target labels or a close "
-    "synonym: {labels}.\n\n"
-    "- If CLEARLY VISIBLE on screen, return ClickAction with the center coords.\n"
-    "- If NOT visible but the screen looks scrollable (more content below the "
-    "fold), return WaitAction(seconds=0.5) as a signal to scroll and retry.\n"
-    "- If NOT visible and the screen is not scrollable, return DoneAction with "
-    "summary='NOT_VISIBLE'.\n\n"
-    "Prefer close-match synonyms over an imperfect coordinate. Example: if the "
-    "target is 'Dining' and you see 'Meal Swipes' or 'Dining Hall', click it."
+    "Find the element that best matches ANY of these target labels: {labels}.\n\n"
+    "A match can be:\n"
+    "  - EXACT text match (case-insensitive)\n"
+    "  - A PARTIAL match — if the target is 'Dining' and you see 'Dining "
+    "Locations' or 'Dining Hall', click it\n"
+    "  - A close SYNONYM — 'Dining' matches 'Meal Swipes', 'Cafeteria', 'Food'; "
+    "'Checkout' matches 'Proceed to Pay'; 'Reorder' matches 'Order Again'\n"
+    "  - An ICON button labeled with any of the above\n\n"
+    "Actions to return:\n"
+    "  - ClickAction(x, y, description) — use this whenever you see the target "
+    "OR a partial/synonym match anywhere on screen. Prefer clicking even a "
+    "partial match over returning WaitAction.\n"
+    "  - WaitAction(seconds=0.5) — ONLY if nothing matches at all AND the "
+    "screen clearly has more content below the visible area (scroll hint).\n"
+    "  - DoneAction(summary='NOT_VISIBLE') — nothing matches and the screen "
+    "is fully shown.\n\n"
+    "Bias strongly toward ClickAction on any plausible match. Avoid scrolling "
+    "past a partial match."
 )
 
 
@@ -103,8 +112,22 @@ class AgentController:
     # ---- control -----------------------------------------------------------
 
     def launch(self, app: str) -> None:
+        """Exit whatever's in the foreground, go home, then launch via Spotlight.
+
+        Pressing Home first ensures we don't start Spotlight inside a
+        modal/overlay of the current app, and gives the phone a visual cue
+        that we're transitioning. Settle times are generous — the phone
+        takes 2-4s to fully render a freshly-launched app, and blasting
+        inputs at a partially-loaded view misses the target half the time.
+        """
+        try:
+            self._inputs.home()
+        except Exception as exc:
+            log.debug("home() failed before launch: %s", exc)
+        time.sleep(0.9)
         self._inputs.open_app(app)
-        time.sleep(1.2)
+        # App-launch animations + first paint on an iPhone take ~3s.
+        time.sleep(3.0)
 
     def wait_for(
         self,
