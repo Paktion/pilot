@@ -7,6 +7,13 @@ import pytest
 from pilot.workflow import RunContext, WorkflowEngine, parse_workflow_yaml
 
 
+def _canonical(text):
+    """Collapse engine's list-form keywords back to a single string for asserts."""
+    if isinstance(text, list):
+        return text[0] if text else ""
+    return text
+
+
 class MockController:
     def __init__(self, read_regex_values: dict[str, str] | None = None) -> None:
         self.actions: list[tuple[str, tuple]] = []
@@ -15,12 +22,12 @@ class MockController:
     def launch(self, app: str) -> None:
         self.actions.append(("launch", (app,)))
 
-    def wait_for(self, text: str, timeout_s: float = 15.0) -> bool:
-        self.actions.append(("wait_for", (text, timeout_s)))
+    def wait_for(self, text, timeout_s: float = 20.0, max_scrolls: int = 4) -> bool:
+        self.actions.append(("wait_for", (_canonical(text), timeout_s)))
         return True
 
-    def tap_text(self, text: str, prefer: str | None = None) -> None:
-        self.actions.append(("tap_text", (text, prefer)))
+    def tap_text(self, text, prefer: str | None = None, max_scrolls: int = 2) -> None:
+        self.actions.append(("tap_text", (_canonical(text), prefer)))
 
     def tap_xy(self, x: int, y: int) -> None:
         self.actions.append(("tap_xy", (x, y)))
