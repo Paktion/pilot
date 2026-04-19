@@ -97,7 +97,9 @@ class WorkflowEngine:
         memory_lookup: Callable[[str, str], Any] | None = None,
         remember: Callable[[str, Any], None] | None = None,
         emit: EventEmitter | None = None,
-        extractor: Any | None = None,  # pilot.workflow.extractor.VisionExtractor
+        extractor: Any | None = None,
+        replanner: Any | None = None,
+        replan_budget: int = 3,
     ) -> None:
         self._controller = controller
         self._workflow_lookup = workflow_lookup
@@ -106,20 +108,41 @@ class WorkflowEngine:
         self._emit = emit or (lambda event: None)
         self._tmpl = TemplateEngine()
         self._extractor = extractor
+        self._replanner = replanner
+        self._replan_budget = max(0, replan_budget)
 
     def run(self, defn: WorkflowDef, ctx: RunContext) -> WorkflowResult:
         """Execute a workflow. Returns a ``WorkflowResult``."""
         self._emit({"event": "started", "run_id": ctx.run_id, "workflow": defn.name})
+
+        # Mutable step list so replan can splice in replacements.
+        steps: list[Step] = list(defn.steps)
+        replans_remaining = self._replan_budget
+
         try:
             ctx.params = self._resolve_params(defn, ctx.params)
-            for idx, step in enumerate(defn.steps):
+            idx = 0
+            while idx < len(steps):
+                step = steps[idx]
                 self._emit({
                     "event": "step",
                     "step": idx,
                     "kind": step.kind.value,
                     "run_id": ctx.run_id,
                 })
-                self._run_step(step, ctx)
+                try:
+                    self._run_step(step, ctx)
+                except WorkflowFailed as exc:
+                    handled, new_steps, budget_left = self._handle_step_failure(
+                        defn, step, idx, exc, ctx, replans_remaining,
+                    )
+                    replans_remaining = budget_left
+                    if handled:
+                        # Splice new steps in place of the failed one.
+                        steps = steps[:idx] + new_steps + steps[idx + 1:]
+                        continue  # don't increment idx — re-enter at replacement
+                    raise
+                idx += 1
         except WorkflowAborted as exc:
             return WorkflowResult(
                 run_id=ctx.run_id,
@@ -317,6 +340,80 @@ class WorkflowEngine:
             "status": result.status,
         })
         return [result.run_id]
+
+    def _handle_step_failure(
+        self,
+        defn: WorkflowDef,
+        step: Step,
+        idx: int,
+        exc: "WorkflowFailed",
+        ctx: RunContext,
+        replans_remaining: int,
+    ) -> tuple[bool, list[Step], int]:
+        """Decide what to do with a WorkflowFailed.
+
+        Returns (handled, new_steps, remaining_budget). When ``handled`` is
+        True, the caller should splice ``new_steps`` in place of the failed
+        step and continue; otherwise, re-raise.
+        """
+        policy = step.value_for("on_failure") or defn.on_success and None  # step overrides
+        # Step-level on_failure can be a bare string ('replan', 'abort',
+        # 'continue') or a dict ({strategy: replan, max: 2}).
+        raw = step.value_for("on_failure")
+        strategy: str = "abort"
+        if isinstance(raw, str):
+            strategy = raw
+        elif isinstance(raw, dict):
+            strategy = str(raw.get("strategy", "abort"))
+
+        if strategy == "replan" and self._replanner is not None and replans_remaining > 0:
+            try:
+                ss = self._controller.screenshot()
+            except Exception as cap_exc:
+                log.warning("replan: could not capture screenshot: %s", cap_exc)
+                return False, [], replans_remaining
+            self._emit({
+                "event": "replan_start",
+                "step": idx,
+                "failed_kind": step.kind.value,
+                "error": str(exc),
+            })
+            try:
+                new_steps = self._replanner.replan(
+                    defn=defn,
+                    failed_step=step,
+                    failed_idx=idx,
+                    error=str(exc),
+                    screenshot=ss,
+                    variables=dict(ctx.variables),
+                    task_id=f"replan:{ctx.run_id[:8]}",
+                )
+            except Exception as replan_exc:
+                log.warning("replan failed: %s", replan_exc)
+                self._emit({
+                    "event": "replan_rejected",
+                    "step": idx,
+                    "error": str(replan_exc),
+                })
+                return False, [], replans_remaining
+            self._emit({
+                "event": "replan_accepted",
+                "step": idx,
+                "new_steps": [s.kind.value for s in new_steps],
+                "budget_remaining": replans_remaining - 1,
+            })
+            return True, new_steps, replans_remaining - 1
+
+        if strategy == "continue":
+            # Skip the failed step and proceed.
+            self._emit({
+                "event": "step_skipped",
+                "step": idx,
+                "error": str(exc),
+            })
+            return True, [], replans_remaining  # empty replacement = just advance
+
+        return False, [], replans_remaining
 
     def _run_extract(self, step: Step, ctx: RunContext) -> None:
         """Vision-based structured extraction.

@@ -305,6 +305,8 @@ def _execute_workflow(
         remember=_remember,
         emit=emit,
         extractor=service.container().extractor(),
+        replanner=service.container().replanner(),
+        replan_budget=3,
     )
     result = engine.run(defn, ctx)
     mem.finish_run(run_id, status=result.status, summary=result.summary)
