@@ -28,6 +28,7 @@
 		A2C4EE92212BF5D389B3E4E4 /* StepCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BDF117B9A20C56205035CF5 /* StepCardView.swift */; };
 		A7F57B40B04AE6B939FA4527 /* Run.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFF5B35E2E273E2D1DB80BFB /* Run.swift */; };
 		AF553BF0DE56144ABE14912F /* DaemonLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C382DC06D8F2B24F72D7FEA /* DaemonLifecycle.swift */; };
+		B34FDFC210DCC742D456C141 /* RunConsoleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF14EB5A43925CD7EC7254BC /* RunConsoleView.swift */; };
 		C6CFE47BFADF86145A6F09F3 /* check_osu_swipes.skill.yaml in Resources */ = {isa = PBXBuildFile; fileRef = C37D1DE888FEE51742418469 /* check_osu_swipes.skill.yaml */; };
 		CD5D44DF407355524B25E2D2 /* SettingsDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF71DCF08AFD94AB1159CB5 /* SettingsDeepLink.swift */; };
 		E4A7AFF6B32C62C5BA75C463 /* reorder_grubhub.skill.yaml in Resources */ = {isa = PBXBuildFile; fileRef = 12A73BF60281FCD11EBBF02A /* reorder_grubhub.skill.yaml */; };
@@ -61,6 +62,7 @@
 		C37D1DE888FEE51742418469 /* check_osu_swipes.skill.yaml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = check_osu_swipes.skill.yaml; sourceTree = "<group>"; };
 		CCA6140BC93367949C2018C3 /* DaemonClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonClient.swift; sourceTree = "<group>"; };
 		D4D7442BC836E7D0D3A036B1 /* Workflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workflow.swift; sourceTree = "<group>"; };
+		DF14EB5A43925CD7EC7254BC /* RunConsoleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunConsoleView.swift; sourceTree = "<group>"; };
 		F37DAAE24050BBCC3FDB979F /* MemoryEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryEntry.swift; sourceTree = "<group>"; };
 		F6EF1FB29988B7D476519B5E /* PermissionStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionStatus.swift; sourceTree = "<group>"; };
 		F9A6A87E101A764C2BE7A2F6 /* Step.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Step.swift; sourceTree = "<group>"; };
@@ -114,6 +116,7 @@
 				26538F2E81ECA0F564737D03 /* MainWindow.swift */,
 				44E7F06AC59D1C100B247589 /* MenubarExtra.swift */,
 				68E998522D98EB47C9C9CA9E /* OnboardingView.swift */,
+				DF14EB5A43925CD7EC7254BC /* RunConsoleView.swift */,
 				170D220593C4182DAE24883A /* ScheduleView.swift */,
 				FF9085FF59501DFBC759CE78 /* SessionReplayView.swift */,
 				667184B329FABF8C36393883 /* SettingsView.swift */,
@@ -256,6 +259,7 @@
 				F1D9C21F86E27295DA5AA39F /* PilotApp.swift in Sources */,
 				2B38B933DFE7370C32C573CA /* RPC.swift in Sources */,
 				A7F57B40B04AE6B939FA4527 /* Run.swift in Sources */,
+				B34FDFC210DCC742D456C141 /* RunConsoleView.swift in Sources */,
 				58F18D51757E5EE469EFA5E3 /* ScheduleEntry.swift in Sources */,
 				1DD192159B703989E23E026E /* ScheduleView.swift in Sources */,
 				73AF6DA70A83C09DEFC6098A /* SessionReplayView.swift in Sources */,
