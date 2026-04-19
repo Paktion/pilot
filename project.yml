@@ -16,10 +16,12 @@ targets:
       - path: Pilot/Resources/templates
         type: folder
       - path: Pilot/Resources/Assets.xcassets
+      - path: Pilot/Resources/AppIcon.icns
     info:
       path: Pilot/Info.plist
       properties:
         CFBundleName: Pilot
+        CFBundleIconFile: AppIcon
         CFBundleShortVersionString: "0.0.1"
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "14.0"

@@ -58,12 +58,15 @@ final class DaemonClient: ObservableObject {
         }
         self.connection = conn
         conn.start(queue: .main)
-        receiveLoop()
 
-        // Wait briefly for .ready.
-        for _ in 0..<20 where !isConnected {
-            try? await Task.sleep(nanoseconds: 50_000_000)
+        // Wait for .ready BEFORE starting the receive loop. Calling receive()
+        // on a non-ready Unix-socket connection silently never delivers the
+        // first inbound frame on macOS, which manifests as: the daemon writes
+        // the response, then sees a broken pipe when our side never reads it.
+        for _ in 0..<60 where !isConnected {
+            try? await Task.sleep(nanoseconds: 50_000_000)  // up to 3s total
         }
+        if isConnected { receiveLoop() }
     }
 
     func disconnect() {

@@ -10,11 +10,11 @@ struct PilotApp: App {
         WindowGroup("Pilot", id: "pilot-main") {
             MainWindow()
                 .environmentObject(appState)
-                .frame(minWidth: 900, minHeight: 600)
+                .frame(minWidth: 1100, minHeight: 720)
         }
-        .defaultSize(width: 1100, height: 720)
+        .defaultSize(width: 1180, height: 760)
 
-        MenuBarExtra("Pilot", systemImage: "dot.radiowaves.up.forward") {
+        MenuBarExtra("Pilot", image: "PilotMark") {
             MenubarContent()
                 .environmentObject(appState)
         }

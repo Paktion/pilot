@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <path d="M120 590 L880 500 L640 620 Z" fill="#15171a"></path>
+  <path d="M120 590 L880 500 L560 380 Z" fill="#15171a" fill-opacity="0.5"></path>
+  <path d="M120 590 L640 620" stroke="#ffffff" stroke-width="6" stroke-linecap="round"></path>
+  <path d="M880 500 L560 380" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.35"></path>
+</svg>

@@ -14,21 +14,39 @@ final class AppState: ObservableObject {
     @Published var showOnboarding: Bool = false
     @Published var connectAttempting: Bool = false
     @Published var connectStatus: String = ""
+    /// Bumped whenever a write to the workflow store happens (save/delete).
+    /// Library observes it to reload without waiting for a tab switch.
+    @Published var workflowsVersion: Int = 0
 
     let client: DaemonClient
+    let data: PilotData
     private var costRefreshTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
         self.client = DaemonClient()
-        // Mirror the client's live connection state into a @Published
-        // property the UI can observe. Without this the dot is a liar.
+        self.data = PilotData()
+        self.data.bind(to: self)
         client.$isConnected
             .receive(on: RunLoop.main)
             .sink { [weak self] connected in
                 self?.daemonConnected = connected
+                if connected {
+                    Task { @MainActor [weak self] in
+                        await self?.data.refreshAll()
+                    }
+                }
             }
             .store(in: &cancellables)
+        // Best-effort auto-connect on launch: if the daemon is already up,
+        // the user shouldn't have to click anything. Falls through silently
+        // if the socket isn't there — the offline UI will surface it.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if self.daemonSocketExists() {
+                await self.tryConnect()
+            }
+        }
     }
 
     func startCostRefresh() {
@@ -49,7 +67,7 @@ final class AppState: ObservableObject {
         defer { connectAttempting = false }
 
         await client.connect()
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await Task.sleep(nanoseconds: 500_000_000)
 
         if client.isConnected {
             if let result = try? await client.callOnce(method: "health.check") {
@@ -106,7 +124,7 @@ final class AppState: ObservableObject {
         connectStatus = "daemon didn't start (see /tmp/pilotd.out)"
     }
 
-    private func daemonSocketExists() -> Bool {
+    func daemonSocketExists() -> Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let socket = home.appendingPathComponent("Library/Application Support/Pilot/pilotd.sock")
         // A Unix socket file shows up via fileExists; the socket itself isn't
