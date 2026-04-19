@@ -28,9 +28,13 @@ from pilot.core import paths
 log = logging.getLogger("pilotd.mcp.permissions")
 
 _DEFAULT_ALLOW: tuple[str, ...] = (
+    "check_health",
     "list_workflows",
     "get_run_status",
+    "get_run_events",
     "get_memory",
+    "diagnose_failure",
+    "draft_workflow",
 )
 
 

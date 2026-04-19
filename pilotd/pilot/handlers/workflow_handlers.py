@@ -151,9 +151,16 @@ async def approve_step(params: dict[str, Any], emit: Emit) -> None:
 
 
 class _Channel:
+    """Broadcast channel for a single run. Buffers events so late-joining
+    clients (MCP pollers, reconnecting UIs) can replay what they missed.
+    """
+    MAX_BUFFER = 2000
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._subs: list[Callable[[dict[str, Any]], None]] = []
+        self._buffer: list[dict[str, Any]] = []
+        self._abort = threading.Event()
 
     def attach(self, fn: Callable[[dict[str, Any]], None]) -> None:
         with self._lock:
@@ -168,12 +175,31 @@ class _Channel:
 
     def publish(self, event: dict[str, Any]) -> None:
         with self._lock:
+            self._buffer.append(event)
+            if len(self._buffer) > self.MAX_BUFFER:
+                self._buffer = self._buffer[-self.MAX_BUFFER:]
             subs = list(self._subs)
         for fn in subs:
             try:
                 fn(event)
             except Exception:
                 log.exception("subscriber raised")
+
+    def snapshot(self, since: int = 0) -> list[dict[str, Any]]:
+        with self._lock:
+            return list(self._buffer[since:])
+
+    def mark_abort(self) -> None:
+        self._abort.set()
+
+    @property
+    def abort_requested(self) -> bool:
+        return self._abort.is_set()
+
+
+def active_channel(run_id: str) -> "_Channel | None":
+    """Public accessor for other handlers (run_handlers.abort/events)."""
+    return _ACTIVE_RUNS.get(run_id)
 
 
 _ACTIVE_RUNS: dict[str, _Channel] = {}

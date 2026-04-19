@@ -11,11 +11,20 @@ from pilot.mcp.permissions import PermissionPolicy, load_policy
 def test_default_allow_only_read_only(tmp_path: Path) -> None:
     cfg = tmp_path / "mcp_permissions.json"
     policy = load_policy(cfg)
-    assert policy.is_tool_visible("list_workflows")
-    assert policy.is_tool_visible("get_run_status")
-    assert policy.is_tool_visible("get_memory")
-    # run_workflow must be HIDDEN in defaults.
-    assert not policy.is_tool_visible("run_workflow")
+    # Read-only tools visible by default.
+    for name in (
+        "check_health",
+        "list_workflows",
+        "get_run_status",
+        "get_run_events",
+        "get_memory",
+        "diagnose_failure",
+        "draft_workflow",
+    ):
+        assert policy.is_tool_visible(name), f"expected {name} visible by default"
+    # Mutating tools HIDDEN by default.
+    for name in ("run_workflow", "save_workflow", "schedule_workflow", "abort_run"):
+        assert not policy.is_tool_visible(name), f"expected {name} hidden by default"
 
 
 def test_defaults_file_written_on_first_use(tmp_path: Path) -> None:
