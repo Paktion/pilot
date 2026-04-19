@@ -257,7 +257,8 @@ class AgentController:
             action = response.action
 
             if isinstance(action, ClickAction):
-                self._inputs.click(action.x, action.y)
+                px, py = self._to_phone_points(action.x, action.y, ss)
+                self._inputs.click(px, py)
                 if self._save_hint is not None and scrolls > 0:
                     try:
                         self._save_hint(canonical, scrolls)
@@ -279,6 +280,37 @@ class AgentController:
 
     def tap_xy(self, x: int, y: int) -> None:
         self._inputs.click(x, y)
+
+    def _to_phone_points(
+        self, px: float, py: float, screenshot: Image.Image
+    ) -> tuple[float, float]:
+        """Map Claude's pixel coords from the screenshot space to phone-screen
+        relative points.
+
+        Claude sees the whole captured window image (including the 28pt
+        title bar). We rescale the pixel coords to window-points using the
+        actual image dimensions vs. window dimensions (accounts for the
+        retina factor AND any client-side downscale), then subtract the
+        title bar and bezel offsets to land in phone-screen-relative space.
+        """
+        img_w, img_h = screenshot.size
+        bounds = self._window.get_window_bounds()
+        win_w = float(bounds.get("width", img_w))
+        win_h = float(bounds.get("height", img_h))
+        if img_w <= 0 or img_h <= 0 or win_w <= 0 or win_h <= 0:
+            return px, py
+        wx = px * win_w / img_w
+        wy = py * win_h / img_h
+        region = self._window.get_phone_screen_region()
+        rx = wx - float(region.get("x", 0))
+        ry = wy - float(region.get("y", 0))
+        # Clamp inside the phone screen so small drift from Claude's eyeballing
+        # doesn't trigger OutOfBoundsError.
+        rw = float(region.get("width", win_w))
+        rh = float(region.get("height", win_h))
+        rx = max(1.0, min(rx, rw - 1.0))
+        ry = max(1.0, min(ry, rh - 1.0))
+        return rx, ry
 
     def swipe(self, direction: str, distance: int | None = None) -> None:
         bounds = self._window.get_phone_screen_region()
