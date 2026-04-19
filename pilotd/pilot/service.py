@@ -29,6 +29,29 @@ log = logging.getLogger("pilotd.service")
 # execute immediately.
 _DEMO_TEMPLATES: tuple[tuple[str, str], ...] = (
     (
+        "check_weather.skill.yaml",
+        """version: 1
+name: Check Today's Weather
+app: Weather
+tags: [demo, safe]
+description: Opens Weather, reads today's high temp. Single-screen, deterministic.
+
+steps:
+  - launch: Weather
+  - wait_for: ["Today", "H:", "L:", "°"]
+    max_scrolls: 1
+    timeout_s: 15
+  - extract: today_high
+    question: "What is today's high temperature as a number? Extract the numeric value only."
+    type: int
+    hint: "Usually shown as 'H: NN°' near the top card."
+  - remember:
+      key: last_weather_high
+      value: "{{ today_high }}"
+  - done: "High: {{ today_high }}°"
+""",
+    ),
+    (
         "reorder_grubhub.skill.yaml",
         """version: 1
 name: Reorder Chipotle Bowl
@@ -150,6 +173,22 @@ class _Container:
                     usage=self.usage(),
                 )
             return self._planner
+
+    def extractor(self):
+        """Vision-based extractor for the EXTRACT workflow step."""
+        with self._lock:
+            from pilot.workflow.extractor import VisionExtractor
+            existing = getattr(self, "_extractor", None)
+            if existing is None:
+                cfg = self.config()
+                self._extractor = VisionExtractor(
+                    client=self.planner()._client,
+                    fast_model=cfg.get("model_light", "claude-haiku-4-5-20251001"),
+                    strong_model=cfg.get("model", "claude-sonnet-4-20250514"),
+                    usage=self.usage(),
+                )
+                existing = self._extractor
+            return existing
 
     # ---- workflow loader ---------------------------------------------------
 

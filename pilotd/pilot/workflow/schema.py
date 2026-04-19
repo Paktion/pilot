@@ -19,10 +19,12 @@ class StepKind(str, Enum):
     TYPE_TEXT = "type_text"
     PRESS_KEY = "press_key"
     READ_AS = "read_as"
+    EXTRACT = "extract"
     REMEMBER = "remember"
     ABORT_IF = "abort_if"
     SCREENSHOT = "screenshot"
     DONE = "done"
+    GOAL = "goal"
 
 
 _VALID_KINDS = {k.value for k in StepKind}
@@ -146,6 +148,14 @@ def _validate_step(kind: StepKind, data: dict[str, Any], idx: int) -> None:
     if kind is StepKind.READ_AS:
         if "pattern" not in data:
             raise WorkflowParseError(f"step {idx} (read_as): needs 'pattern'")
+    if kind is StepKind.EXTRACT:
+        if not data.get("_primary"):
+            raise WorkflowParseError(f"step {idx} (extract): needs a variable name")
+        if not data.get("question"):
+            raise WorkflowParseError(f"step {idx} (extract): needs 'question'")
+    if kind is StepKind.GOAL:
+        if not data.get("_primary"):
+            raise WorkflowParseError(f"step {idx} (goal): needs a goal description")
     if kind is StepKind.REMEMBER:
         if "key" not in data or "value" not in data:
             raise WorkflowParseError(f"step {idx} (remember): needs 'key' and 'value'")

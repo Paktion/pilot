@@ -42,6 +42,10 @@ REQUIRED: tuple[str, ...] = (
     "AGENT_SYSTEM",
     "TASK_PLANNER",
     "SAFETY_GUARD",
+    "EXTRACT_ANSWER",
+    "GOAL_AGENT",
+    "REPLAN",
+    "SUCCESS_CRITERIA",
 )
 
 

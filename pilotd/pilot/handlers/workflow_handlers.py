@@ -304,6 +304,7 @@ def _execute_workflow(
         workflow_lookup=service.container().load_workflow,
         remember=_remember,
         emit=emit,
+        extractor=service.container().extractor(),
     )
     result = engine.run(defn, ctx)
     mem.finish_run(run_id, status=result.status, summary=result.summary)

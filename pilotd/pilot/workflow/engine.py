@@ -52,6 +52,7 @@ class Controller(Protocol):
     def press_key(self, key: str, modifiers: list[str] | None = None) -> None: ...
     def screenshot_label(self, label: str) -> None: ...
     def read_regex(self, pattern: str) -> str | None: ...
+    def screenshot(self) -> Any: ...  # returns a PIL Image — typed Any to keep the Protocol light
 
 
 class EventEmitter(Protocol):
@@ -96,6 +97,7 @@ class WorkflowEngine:
         memory_lookup: Callable[[str, str], Any] | None = None,
         remember: Callable[[str, Any], None] | None = None,
         emit: EventEmitter | None = None,
+        extractor: Any | None = None,  # pilot.workflow.extractor.VisionExtractor
     ) -> None:
         self._controller = controller
         self._workflow_lookup = workflow_lookup
@@ -103,6 +105,7 @@ class WorkflowEngine:
         self._remember = remember
         self._emit = emit or (lambda event: None)
         self._tmpl = TemplateEngine()
+        self._extractor = extractor
 
     def run(self, defn: WorkflowDef, ctx: RunContext) -> WorkflowResult:
         """Execute a workflow. Returns a ``WorkflowResult``."""
@@ -224,6 +227,12 @@ class WorkflowEngine:
             if value is None:
                 raise WorkflowFailed(f"read_as: pattern {pattern!r} not found on screen")
             ctx.variables[var_name] = value
+        elif kind is StepKind.EXTRACT:
+            self._run_extract(step, ctx)
+        elif kind is StepKind.GOAL:
+            # GOAL is handled in round 5c — for now emit a clear error so the
+            # workflow doesn't silently skip.
+            raise WorkflowFailed("goal: step not yet implemented in this build")
         elif kind is StepKind.REMEMBER:
             key = self._interp(step.value_for("key"), ctx)
             raw_val = self._interp(step.value_for("value"), ctx)
@@ -268,6 +277,25 @@ class WorkflowEngine:
         assert defn.on_success is not None
         assert self._workflow_lookup is not None
         target_name = defn.on_success["run"]
+
+        # Null-guard — real-money safety.
+        # If on_success.require lists variables, ALL must be non-null before
+        # the child workflow fires. This prevents chaining on garbage.
+        required_vars = defn.on_success.get("require") or []
+        for v in required_vars:
+            if ctx.variables.get(v) is None:
+                self._emit({
+                    "event": "chain_blocked",
+                    "reason": "required_var_null",
+                    "variable": v,
+                    "parent_run_id": ctx.run_id,
+                })
+                log.warning(
+                    "on_success blocked: required variable %r is null (workflow %s)",
+                    v, defn.name,
+                )
+                return []
+
         target = self._workflow_lookup(target_name)
         if not target:
             log.warning("on_success target %r not found", target_name)
@@ -278,7 +306,7 @@ class WorkflowEngine:
         }
         sub_ctx = RunContext(
             run_id=str(uuid.uuid4()),
-            workflow_id="",  # caller fills in
+            workflow_id="",
             params=interp_params,
         )
         result = self.run(target, sub_ctx)
@@ -289,6 +317,56 @@ class WorkflowEngine:
             "status": result.status,
         })
         return [result.run_id]
+
+    def _run_extract(self, step: Step, ctx: RunContext) -> None:
+        """Vision-based structured extraction.
+
+        YAML:
+            - extract: var_name
+              question: "What is the remaining meal-swipe count?"
+              type: int  # optional (string|int|float|bool|list)
+              hint: "shown on the Meal Plan card" # optional
+              min_confidence: 0.5  # optional; default 0.3
+        """
+        if self._extractor is None:
+            raise WorkflowFailed(
+                "extract: step requires a VisionExtractor (check service wiring)"
+            )
+        var_name = step.primary
+        question = self._interp(step.value_for("question"), ctx)
+        expected_type = str(step.value_for("type", "string"))
+        hint = step.value_for("hint")
+        if isinstance(hint, str):
+            hint = self._interp(hint, ctx)
+        min_conf = float(step.value_for("min_confidence", 0.3))
+
+        # Grab current screenshot via the controller.
+        ss = self._controller.screenshot()
+        self._emit({
+            "event": "extract_ask",
+            "variable": var_name,
+            "question": question,
+            "expected_type": expected_type,
+        })
+        value, confidence = self._extractor.extract(
+            question=question,
+            screenshot=ss,
+            expected_type=expected_type,
+            hint=hint,
+            task_id=f"extract:{ctx.run_id[:8]}",
+        )
+        ctx.variables[var_name] = value
+        self._emit({
+            "event": "extract_answer",
+            "variable": var_name,
+            "value": value,
+            "confidence": round(confidence, 3),
+        })
+        if value is None and confidence < min_conf:
+            raise WorkflowFailed(
+                f"extract: couldn't answer {question!r} with sufficient confidence "
+                f"(got {confidence:.2f})"
+            )
 
 
 def _coerce_number(raw: Any) -> float | int:
