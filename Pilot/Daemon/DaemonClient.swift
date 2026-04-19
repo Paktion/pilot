@@ -29,7 +29,16 @@ final class DaemonClient: ObservableObject {
     // MARK: - Connection lifecycle
 
     func connect() async {
+        // Tear down a stale non-ready connection before re-opening. Without
+        // this, any prior .failed or .cancelled state leaves `connection`
+        // non-nil and `connect()` becomes a silent no-op — which manifests
+        // as "Library stuck on loading".
+        if let existing = connection, existing.state != .ready {
+            tearDownConnection(withError: "reconnecting")
+        }
         guard connection == nil else { return }
+
+        pendingBuffer.removeAll(keepingCapacity: true)
         let endpoint = NWEndpoint.unix(path: socketPath.path)
         let conn = NWConnection(to: endpoint, using: .tcp)
         conn.stateUpdateHandler = { [weak self] state in
@@ -39,10 +48,9 @@ final class DaemonClient: ObservableObject {
                 case .ready:
                     self.isConnected = true
                 case .failed(let error):
-                    self.isConnected = false
-                    self.lastError = error.localizedDescription
+                    self.tearDownConnection(withError: error.localizedDescription)
                 case .cancelled:
-                    self.isConnected = false
+                    self.tearDownConnection(withError: nil)
                 default:
                     break
                 }
@@ -59,20 +67,50 @@ final class DaemonClient: ObservableObject {
     }
 
     func disconnect() {
-        connection?.cancel()
+        tearDownConnection(withError: nil)
+    }
+
+    private func tearDownConnection(withError message: String?) {
+        if let conn = connection {
+            conn.cancel()
+        }
         connection = nil
         isConnected = false
+        if let message { lastError = message }
+        // Fail every pending continuation so callers don't hang forever.
+        for (_, cont) in continuations {
+            cont.finish(throwing: DaemonError.disconnected(message))
+        }
+        continuations.removeAll()
+        requestIDToUUID.removeAll()
+        pendingBuffer.removeAll(keepingCapacity: true)
     }
 
     // MARK: - RPC
 
     /// Send a one-shot request that expects a single ``done``/``error`` terminal event.
+    /// Auto-reconnects once if the socket is stale.
     func callOnce(method: String, params: [String: Any] = [:]) async throws -> [String: Any] {
-        let stream = try call(method: method, params: params)
-        for try await frame in stream {
-            if let event = frame["event"] as? String,
-               event == "done" || event == "error" {
-                return frame
+        // Reconnect-once retry: the daemon can restart between calls.
+        for attempt in 0..<2 {
+            do {
+                if !isConnected { await connect() }
+                let stream = try call(method: method, params: params)
+                for try await frame in stream {
+                    if let event = frame["event"] as? String,
+                       event == "done" || event == "error" {
+                        return frame
+                    }
+                }
+                throw DaemonError.noTerminalEvent
+            } catch {
+                if attempt == 0 {
+                    // Force a fresh connection on next iteration.
+                    tearDownConnection(withError: "retry after: \(error)")
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    continue
+                }
+                throw error
             }
         }
         throw DaemonError.noTerminalEvent
@@ -187,11 +225,13 @@ final class DaemonClient: ObservableObject {
 enum DaemonError: Error, LocalizedError {
     case notConnected
     case noTerminalEvent
+    case disconnected(String?)
 
     var errorDescription: String? {
         switch self {
         case .notConnected: return "Daemon is not connected"
         case .noTerminalEvent: return "Daemon did not return a terminal event"
+        case .disconnected(let msg): return "Daemon disconnected: \(msg ?? "unknown")"
         }
     }
 }
