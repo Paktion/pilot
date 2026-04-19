@@ -19,9 +19,19 @@ _DEFAULT_HOME = "~/Library/Application Support/Pilot"
 
 
 def pilot_home() -> Path:
-    """Return the Pilot runtime directory, creating it if missing."""
+    """Return the Pilot runtime directory, creating it with 0700 if missing.
+
+    Restricting the directory to the owner prevents other local users from
+    reading .env, memory.db, or connecting to the daemon's Unix socket on
+    a shared Mac.
+    """
     root = Path(os.environ.get("PILOT_HOME", _DEFAULT_HOME)).expanduser()
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        if (root.stat().st_mode & 0o777) != 0o700:
+            root.chmod(0o700)
+    except OSError:
+        pass
     return root
 
 

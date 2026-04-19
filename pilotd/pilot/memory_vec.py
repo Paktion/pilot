@@ -375,6 +375,48 @@ class MemoryStore:
                 ).fetchall()
             return [dict(r) for r in rows]
 
+    # ---- navigation hints --------------------------------------------------
+
+    def remember_navigation(
+        self,
+        *,
+        app: str,
+        target: str,
+        scrolls: int,
+        workflow_id: str | None = None,
+    ) -> None:
+        """Persist 'to reach ``target`` in ``app``, scroll N times'.
+
+        Always last-write-wins — we want the most recent observed count, not
+        the average, so the happy path on the next run is fast.
+        """
+        key = f"nav:{app}:{target}"
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id FROM memory WHERE key=?", (key,)
+            ).fetchall()
+            for r in rows:
+                conn.execute("DELETE FROM memory_vec WHERE id=?", (r["id"],))
+                conn.execute("DELETE FROM memory WHERE id=?", (r["id"],))
+        self.remember(
+            workflow_id=workflow_id,
+            run_id=None,
+            kind="navigation",
+            key=key,
+            value={"app": app, "target": target, "scrolls": int(scrolls)},
+        )
+
+    def get_navigation_hint(self, *, app: str, target: str) -> dict | None:
+        import json as _json
+        key = f"nav:{app}:{target}"
+        rows = self.recall(workflow_id=None, key=key, limit=1)
+        if not rows:
+            return None
+        try:
+            return _json.loads(rows[0]["value_json"])
+        except (TypeError, _json.JSONDecodeError):
+            return None
+
     def numeric_values(
         self, *, workflow_id: str | None, key: str, limit: int = 6
     ) -> list[float]:

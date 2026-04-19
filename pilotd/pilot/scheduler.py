@@ -203,4 +203,15 @@ def _notify(*, title: str, message: str) -> None:
 
 
 def _escape(s: str) -> str:
-    return s.replace("\\", "\\\\").replace('"', '\\"')
+    """Escape a string for safe embedding in an osascript double-quoted literal.
+
+    Backslashes, quotes, and newlines all need to be neutralized —
+    unescaped newlines would break out of the quoted string and let a
+    workflow name inject additional AppleScript.
+    """
+    return (
+        s.replace("\\", "\\\\")
+         .replace('"', '\\"')
+         .replace("\n", " ")
+         .replace("\r", " ")
+    )

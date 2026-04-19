@@ -50,7 +50,14 @@ def activate_mirroring() -> None:
 
 
 def activate_app(app_name: str) -> None:
-    """Activate *app_name*; best effort, never raises."""
+    """Activate *app_name*; best effort, never raises.
+
+    Rejects names containing characters that could break out of the
+    AppleScript string literal and execute arbitrary commands.
+    """
+    if not _is_safe_app_name(app_name):
+        logger.warning("refusing to activate app with unsafe name: %r", app_name)
+        return
     try:
         subprocess.run(
             ["osascript", "-e", f'tell application "{app_name}" to activate'],
@@ -59,3 +66,13 @@ def activate_app(app_name: str) -> None:
         )
     except Exception:
         pass  # Best effort -- don't interrupt the agent over this
+
+
+_UNSAFE_CHARS = set('"\\\n\r')
+
+
+def _is_safe_app_name(name: str) -> bool:
+    """Reject anything that could break out of the AppleScript string."""
+    if not name or len(name) > 128:
+        return False
+    return not any(ch in _UNSAFE_CHARS for ch in name)

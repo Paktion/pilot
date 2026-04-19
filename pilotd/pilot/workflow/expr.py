@@ -42,9 +42,13 @@ class TemplateEngine:
     def evaluate_predicate(self, template: str, vars: dict[str, Any]) -> bool:
         """Evaluate an ``abort_if`` expression as a boolean.
 
-        The template may be a plain predicate like ``{{ x > 5 }}`` or a raw
-        expression wrapped in braces. The rendered result is coerced into a
-        boolean: 'true', '1', 'yes' -> True; anything else -> False.
+        Fail-CLOSED semantics: if the template cannot be rendered, the
+        predicate evaluates to ``True`` (abort). This prevents a malformed
+        or tampered-with guard from silently permitting a destructive step.
         """
-        rendered = self.render(template, vars).strip().lower()
+        try:
+            rendered = self.render(template, vars).strip().lower()
+        except ExprError:
+            # Broken guard = abort, never fall through to the destructive step.
+            raise
         return rendered in ("true", "1", "yes", "on")

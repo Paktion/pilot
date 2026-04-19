@@ -2,16 +2,17 @@
 AgentController — bridges the workflow engine's ``Controller`` protocol to
 the live perception-action stack (window capture + input simulator + vision).
 
-Responsibilities
-----------------
-* ``launch`` — invoke Spotlight via the input simulator
-* ``wait_for`` — poll the Mirroring window until target text appears (vision)
-* ``tap_text`` — locate target text on the current screenshot via the vision
-  agent, then tap at the returned coordinates
-* ``tap_xy`` — raw coordinate tap (used by compiled skills)
-* ``swipe``, ``type_text``, ``press_key`` — forwarded to the input simulator
-* ``read_regex`` — pull text off the current screenshot and match a regex
-* ``screenshot_label`` — tag the session recording
+Intelligence upgrades over the v0 bridge:
+
+* ``wait_for`` and ``tap_text`` accept a keyword list (``str`` or ``list[str]``).
+  The vision prompt invites the LLM to match ANY of the keywords or a close
+  synonym — "Dining" also accepts "Meal Swipes" or "Cafeteria".
+* If the target isn't visible, ``wait_for`` tells the LLM to return a
+  ``WaitAction`` as a signal to scroll; the controller then swipes up and
+  retries. Capped by ``max_scrolls``.
+* Learned scroll counts per (app, keyword) are persisted via the injectable
+  ``save_hint`` callback and pre-applied on the next run via ``lookup_hint``.
+  The controller emits a ``learned`` event so the UI can render the discovery.
 """
 
 from __future__ import annotations
@@ -24,16 +25,22 @@ from typing import Any, Callable
 from PIL import Image
 
 from pilot.core.input_simulator import InputSimulator
-from pilot.core.vision import AgentResponse, ClickAction, VisionAgent
+from pilot.core.vision import ClickAction, DoneAction, VisionAgent, WaitAction
 from pilot.core.window_capture import MirroringWindowManager
 
 log = logging.getLogger("pilotd.controller")
 
 
-_TAP_PROMPT_TEMPLATE = (
-    "Your only job for this single turn is to return a ClickAction at the "
-    "center of the element labeled {label!r}. If the element is not visible, "
-    "return a DoneAction with summary='NOT_VISIBLE'."
+_FIND_PROMPT = (
+    "Find the element that best matches ANY of these target labels or a close "
+    "synonym: {labels}.\n\n"
+    "- If CLEARLY VISIBLE on screen, return ClickAction with the center coords.\n"
+    "- If NOT visible but the screen looks scrollable (more content below the "
+    "fold), return WaitAction(seconds=0.5) as a signal to scroll and retry.\n"
+    "- If NOT visible and the screen is not scrollable, return DoneAction with "
+    "summary='NOT_VISIBLE'.\n\n"
+    "Prefer close-match synonyms over an imperfect coordinate. Example: if the "
+    "target is 'Dining' and you see 'Meal Swipes' or 'Dining Hall', click it."
 )
 
 
@@ -47,16 +54,36 @@ class AgentController:
         inputs: InputSimulator,
         window: MirroringWindowManager,
         on_screenshot: Callable[[Image.Image, dict[str, Any]], None] | None = None,
+        lookup_hint: Callable[[str], dict | None] | None = None,
+        save_hint: Callable[[str, int], None] | None = None,
     ) -> None:
         self._vision = vision
         self._inputs = inputs
         self._window = window
         self._on_screenshot = on_screenshot or (lambda *_: None)
+        self._lookup_hint = lookup_hint
+        self._save_hint = save_hint
 
     # ---- perception --------------------------------------------------------
 
     def _current_screenshot(self) -> Image.Image:
         return self._window.capture_screenshot()
+
+    @staticmethod
+    def _normalize_keywords(labels: str | list[str]) -> list[str]:
+        if isinstance(labels, str):
+            return [labels]
+        return [str(x) for x in labels if str(x).strip()]
+
+    @staticmethod
+    def _format_labels(keywords: list[str]) -> str:
+        return ", ".join(f"{k!r}" for k in keywords)
+
+    @staticmethod
+    def _hint_key(keywords: list[str]) -> str:
+        # First keyword is canonical — saved hint uses it as the key so
+        # lookup next run matches the same primary target.
+        return keywords[0]
 
     # ---- control -----------------------------------------------------------
 
@@ -64,48 +91,159 @@ class AgentController:
         self._inputs.open_app(app)
         time.sleep(1.2)
 
-    def wait_for(self, text: str, timeout_s: float = 15.0) -> bool:
+    def wait_for(
+        self,
+        text: str | list[str],
+        timeout_s: float = 20.0,
+        max_scrolls: int = 4,
+    ) -> bool:
+        """Poll until any of ``text`` (keyword(s)) is visible, scrolling if needed.
+
+        Applies a previously-learned pre-scroll from memory. Saves new
+        discoveries via ``save_hint`` so later runs skip the learning cost.
+        """
+        keywords = self._normalize_keywords(text)
+        if not keywords:
+            return False
+        canonical = self._hint_key(keywords)
+
+        # 1. Apply learned pre-scroll so the happy path is fast.
+        hint = self._lookup_hint(canonical) if self._lookup_hint else None
+        pre_scrolls = int((hint or {}).get("scrolls", 0))
+        pre_scrolls = max(0, min(pre_scrolls, max_scrolls))
+        for _ in range(pre_scrolls):
+            self._try_swipe("up")
+            time.sleep(0.4)
+
+        # 2. Poll + scroll until found or timeout.
         deadline = time.monotonic() + timeout_s
+        polls_since_scroll = 0
+        scrolls_applied = pre_scrolls
+        vision_errors = 0
+        task_prompt = _FIND_PROMPT.format(labels=self._format_labels(keywords))
+
         while time.monotonic() < deadline:
-            ss = self._current_screenshot()
-            self._on_screenshot(ss, {"kind": "wait_for", "target": text})
             try:
-                response = self._vision.analyze_screen(
-                    ss,
-                    task=_TAP_PROMPT_TEMPLATE.format(label=text),
-                )
+                ss = self._current_screenshot()
+                self._on_screenshot(ss, {
+                    "kind": "wait_for",
+                    "keywords": keywords,
+                    "scrolls": scrolls_applied,
+                })
+                response = self._vision.analyze_screen(ss, task=task_prompt)
             except Exception as exc:
-                log.warning("wait_for vision call failed: %s", exc)
+                vision_errors += 1
+                if vision_errors >= 3:
+                    log.warning(
+                        "wait_for %s: %d vision errors, bailing", keywords, vision_errors,
+                    )
+                    return False
                 time.sleep(1.0)
                 continue
+
+            vision_errors = 0
+
             if isinstance(response.action, ClickAction):
+                # Found. Record if this was a learning moment.
+                if self._save_hint is not None and scrolls_applied != pre_scrolls:
+                    try:
+                        self._save_hint(canonical, scrolls_applied)
+                    except Exception:
+                        log.exception("save_hint failed")
                 return True
+
+            # LLM signaled "not visible but scrollable" via WaitAction.
+            if isinstance(response.action, WaitAction):
+                if scrolls_applied < max_scrolls:
+                    self._try_swipe("up")
+                    scrolls_applied += 1
+                    polls_since_scroll = 0
+                    time.sleep(0.6)
+                    continue
+
+            # DoneAction(NOT_VISIBLE) or we've exhausted scrolls.
+            if isinstance(response.action, DoneAction):
+                # Still try one opportunistic scroll if we haven't maxed out.
+                if scrolls_applied < max_scrolls:
+                    self._try_swipe("up")
+                    scrolls_applied += 1
+                    polls_since_scroll = 0
+                    time.sleep(0.6)
+                    continue
+                return False
+
+            polls_since_scroll += 1
             time.sleep(0.8)
+
         return False
 
-    def tap_text(self, text: str, prefer: str | None = None) -> None:
-        ss = self._current_screenshot()
-        self._on_screenshot(ss, {"kind": "tap", "target": text, "prefer": prefer})
-        response = self._vision.analyze_screen(
-            ss,
-            task=_TAP_PROMPT_TEMPLATE.format(label=text),
-        )
-        action = response.action
-        if not isinstance(action, ClickAction):
+    def _try_swipe(self, direction: str) -> None:
+        """Swipe without letting a geometry error abort the whole wait loop."""
+        try:
+            self.swipe(direction)
+        except Exception as exc:
+            log.debug("swipe %s failed: %s", direction, exc)
+
+    def tap_text(
+        self,
+        text: str | list[str],
+        prefer: str | None = None,
+        max_scrolls: int = 2,
+    ) -> None:
+        """Find ``text`` (keyword(s)) on screen and tap it.
+
+        If not visible, scroll up to ``max_scrolls`` times before failing.
+        """
+        keywords = self._normalize_keywords(text)
+        if not keywords:
+            raise RuntimeError("tap_text: empty keyword list")
+        canonical = self._hint_key(keywords)
+        task_prompt = _FIND_PROMPT.format(labels=self._format_labels(keywords))
+
+        scrolls = 0
+        while True:
+            ss = self._current_screenshot()
+            self._on_screenshot(ss, {
+                "kind": "tap",
+                "keywords": keywords,
+                "prefer": prefer,
+                "scrolls": scrolls,
+            })
+            response = self._vision.analyze_screen(ss, task=task_prompt)
+            action = response.action
+
+            if isinstance(action, ClickAction):
+                self._inputs.click(action.x, action.y)
+                if self._save_hint is not None and scrolls > 0:
+                    try:
+                        self._save_hint(canonical, scrolls)
+                    except Exception:
+                        log.exception("save_hint failed")
+                return
+
+            # WaitAction or DoneAction: not visible. Try to scroll.
+            if scrolls < max_scrolls:
+                self._try_swipe("up")
+                scrolls += 1
+                time.sleep(0.6)
+                continue
+
             raise RuntimeError(
-                f"tap_text({text!r}): vision returned {type(action).__name__}, not a ClickAction"
+                f"tap_text({keywords}): not visible after {scrolls} scrolls; "
+                f"vision returned {type(action).__name__}"
             )
-        self._inputs.click(action.x, action.y)
 
     def tap_xy(self, x: int, y: int) -> None:
         self._inputs.click(x, y)
 
     def swipe(self, direction: str, distance: int | None = None) -> None:
-        # Center-of-screen gesture of configurable length.
         bounds = self._window.get_phone_screen_region()
         cx = bounds["width"] // 2
         cy = bounds["height"] // 2
-        mag = distance if distance is not None else min(bounds["width"], bounds["height"]) // 3
+        mag = (
+            distance if distance is not None
+            else min(bounds["width"], bounds["height"]) // 3
+        )
         if direction == "up":
             self._inputs.swipe(cx, cy + mag // 2, cx, cy - mag // 2)
         elif direction == "down":
@@ -128,11 +266,7 @@ class AgentController:
         self._on_screenshot(ss, {"kind": "label", "label": label})
 
     def read_regex(self, pattern: str) -> str | None:
-        """Extract text matching ``pattern`` from the current screen.
-
-        Implementation: ask Claude to OCR the current screen, then regex-match
-        the returned text. Falls back to ``None`` if no match.
-        """
+        """Extract text matching ``pattern`` from the current screen."""
         ss = self._current_screenshot()
         self._on_screenshot(ss, {"kind": "read_regex", "pattern": pattern})
         ocr_task = (
@@ -147,10 +281,10 @@ class AgentController:
         text = getattr(response.action, "summary", None) or response.thought
         if not text:
             return None
-        match = re.search(pattern, text)
+        # Cap input to guard against ReDoS from malicious patterns × long OCR.
+        match = re.search(pattern, text[:4096])
         if match is None:
             return None
-        # If the pattern captures a group, return it; else the whole match.
         if match.groups():
             return match.group(1)
         return match.group(0)

@@ -176,21 +176,34 @@ class WorkflowEngine:
             return value
         return self._tmpl.render(value, ctx.templating_vars())
 
+    def _interp_keywords(self, value: Any, ctx: RunContext) -> list[str]:
+        """Normalize ``value`` into a list of interpolated keywords."""
+        if isinstance(value, list):
+            return [self._interp(v, ctx) for v in value if str(v).strip()]
+        if value is None:
+            return []
+        return [self._interp(value, ctx)]
+
     def _run_step(self, step: Step, ctx: RunContext) -> None:
         kind = step.kind
         if kind is StepKind.LAUNCH:
             app = self._interp(step.primary, ctx)
             self._controller.launch(app)
         elif kind is StepKind.WAIT_FOR:
-            text = self._interp(step.primary, ctx)
-            if not self._controller.wait_for(text):
-                raise WorkflowFailed(f"wait_for timed out: {text!r}")
+            raw = step.primary if step.value_for("keywords") is None else step.value_for("keywords")
+            keywords = self._interp_keywords(raw, ctx)
+            timeout_s = float(step.value_for("timeout_s", 20.0))
+            max_scrolls = int(step.value_for("max_scrolls", 4))
+            if not self._controller.wait_for(keywords, timeout_s=timeout_s, max_scrolls=max_scrolls):
+                raise WorkflowFailed(f"wait_for timed out: {keywords!r}")
         elif kind is StepKind.TAP:
-            text = self._interp(step.primary, ctx)
-            self._controller.tap_text(text, prefer=step.value_for("prefer"))
+            raw = step.primary if step.value_for("keywords") is None else step.value_for("keywords")
+            keywords = self._interp_keywords(raw, ctx)
+            self._controller.tap_text(keywords, prefer=step.value_for("prefer"))
         elif kind is StepKind.TAP_NEAR:
-            text = self._interp(step.primary, ctx)
-            self._controller.tap_text(text, prefer=step.value_for("prefer", "first"))
+            raw = step.primary if step.value_for("keywords") is None else step.value_for("keywords")
+            keywords = self._interp_keywords(raw, ctx)
+            self._controller.tap_text(keywords, prefer=step.value_for("prefer", "first"))
         elif kind is StepKind.TAP_XY:
             x = int(self._interp(step.value_for("x"), ctx))
             y = int(self._interp(step.value_for("y"), ctx))

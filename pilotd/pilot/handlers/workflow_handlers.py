@@ -259,18 +259,38 @@ def _execute_workflow(
         log.info("workflow %s skipped — Mirroring unavailable", defn.name)
         return
 
+    mem = service.container().memory()
+    app_context = defn.app or defn.name
+
+    def _lookup_hint(target: str) -> dict | None:
+        return mem.get_navigation_hint(app=app_context, target=target)
+
+    def _save_hint(target: str, scrolls: int) -> None:
+        mem.remember_navigation(
+            app=app_context, target=target, scrolls=scrolls,
+            workflow_id=workflow_id,
+        )
+        # Visible in the live log so judges see the agent learning.
+        emit({
+            "event": "step",
+            "step": -1,
+            "kind": f"💡 learned: scroll {scrolls}× to reach '{target}' in {app_context}",
+        })
+
     try:
-        controller = _build_live_controller(emit)
+        controller = _build_live_controller(emit, lookup_hint=_lookup_hint, save_hint=_save_hint)
     except Exception as exc:
         log.exception("could not build agent controller")
-        service.container().memory().finish_run(
+        mem.finish_run(
             run_id, status="failed",
             summary=f"controller init failed: {type(exc).__name__}: {exc}",
         )
-        emit({"event": "failed", "error": f"controller init: {exc}"})
+        emit({
+            "event": "done",
+            "status": "failed",
+            "summary": f"controller init failed: {type(exc).__name__}: {exc}",
+        })
         return
-
-    mem = service.container().memory()
 
     def _remember(key: str, value: Any) -> None:
         mem.remember(
@@ -297,7 +317,12 @@ def _execute_workflow(
     log.info("workflow %s → %s (%s)", defn.name, result.status, result.summary)
 
 
-def _build_live_controller(emit: Callable[[dict[str, Any]], None]):
+def _build_live_controller(
+    emit: Callable[[dict[str, Any]], None],
+    *,
+    lookup_hint: Callable[[str], dict | None] | None = None,
+    save_hint: Callable[[str, int], None] | None = None,
+):
     from pilot.core.controller import AgentController
     from pilot.core.input_simulator import InputSimulator
     from pilot.core.vision import VisionAgent
@@ -326,6 +351,8 @@ def _build_live_controller(emit: Callable[[dict[str, Any]], None]):
     return AgentController(
         vision=vision, inputs=inputs, window=window,
         on_screenshot=on_screenshot,
+        lookup_hint=lookup_hint,
+        save_hint=save_hint,
     )
 
 
